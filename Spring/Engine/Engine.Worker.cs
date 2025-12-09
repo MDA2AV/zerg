@@ -135,6 +135,8 @@ public sealed unsafe partial class OverdriveEngine
         {
             while (!StopAll)
             {
+                //Thread.Sleep(1);
+                
                 //
                 // 1) Drain new connections → arm recv multishot
                 //
@@ -192,7 +194,10 @@ public sealed unsafe partial class OverdriveEngine
 
                     // Submit anything we queued (new recvs / sends)
                     if (shim_sq_ready(pring) > 0)
+                    {
+                        //Console.WriteLine("Submitting1");
                         shim_submit(pring);
+                    }
 
                     continue;
                 }
@@ -245,23 +250,6 @@ public sealed unsafe partial class OverdriveEngine
                             // Normal recv: hand buffer to connection + signal app
                             if (connections.TryGetValue(fd, out var connection))
                             {
-                                /*
-                                connection.InPtr    = BR_Slab + (nuint)bid * (nuint)s_recvBufferSize;
-                                connection.InLength = res;
-
-                                // Very simple: parse until we see \r\n\r\n
-                                int used = HeaderParser.FindCrlfCrlf(
-                                    connection.InPtr,
-                                    0,
-                                    connection.InLength);
-
-                                if (used > 0)
-                                {
-                                    // Wake connection.ReadAsync()
-                                    connection.Tcs.TrySetResult(true);
-                                }
-                                */
-                                
                                 connection.Tcs.SetResult(true);
 
                                 // Re-arm multishot if kernel ended it
@@ -319,250 +307,11 @@ public sealed unsafe partial class OverdriveEngine
                 //
                 // 5) Submit all SQEs we queued this iteration
                 //
-                if (shim_sq_ready(pring) > 0)
+                /*if (shim_sq_ready(pring) > 0)
+                {
+                    //Console.WriteLine("Submitting2");
                     shim_submit(pring);
-            }
-        }
-        finally
-        {
-            // Close any remaining connections
-            CloseAll(connections);
-
-            // Free buffer ring BEFORE destroying the ring
-            if (pring != null && BR != null)
-            {
-                shim_free_buf_ring(pring, BR, (uint)s_bufferRingEntries, c_bufferRingGID);
-                BR = null;
-            }
-
-            // Destroy ring (unregisters CQ/SQ memory mappings)
-            if (pring != null)
-            {
-                shim_destroy_ring(pring);
-                pring = null;
-            }
-
-            // Free slab memory used by buf ring
-            if (BR_Slab != null)
-            {
-                NativeMemory.AlignedFree(BR_Slab);
-                BR_Slab = null;
-            }
-
-            Console.WriteLine($"[w{workerIndex}] Shutdown complete.");
-        }
-    }
-
-    public static void SenderLoop(int workerIndex)
-    {
-        Console.WriteLine("Inside sender loop");
-        
-        var connections = Connections[workerIndex];
-        var worker = s_Workers[workerIndex];
-        var pring = worker.PRing;
-        var sendReader = worker.SendQueue.Reader;       // outbound sends from app
-        while (true)
-        {
-            while (sendReader.TryRead(out var send))
-            {
-                if (connections.TryGetValue(send.Fd, out var connection))
-                {
-                    connection.OutPtr = send.Ptr;
-                    connection.OutHead = 0;
-                    connection.OutTail = send.Length;
-                    connection.Sending = true;
-
-                    //Console.WriteLine("submitting..");
-                    
-                    SubmitSend2(
-                        pring,
-                        connection.Fd,
-                        connection.OutPtr,
-                        connection.OutHead,
-                        connection.OutTail);
-                    
-                    //Console.WriteLine("submitted.");
-                }
-                // If fd is gone, just drop the send request
-            }
-        }
-    }
-    
-    private static void WorkerLoop2(int workerIndex)
-    {
-        //var connections = new Dictionary<int, Connection>(capacity: 1024);
-        var connections = Connections[workerIndex];
-        
-        var worker = s_Workers[workerIndex];
-        var pring = worker.PRing;
-        var BR_Slab = worker.BufferRingSlab;
-        var BR = worker.BufferRing;
-        var BR_Mask = worker.BufferRingMask;
-        var BR_Idx = worker.BufferRingIndex;
-        
-        var sendReader = worker.SendQueue.Reader;       // outbound sends from app
-
-        try
-        {
-            var cqes = new io_uring_cqe*[s_batchCQES];
-            var myQueue = WorkerQueues[workerIndex];
-
-            Console.WriteLine($"[w{workerIndex}] Started and ready");
-
-            while (!StopAll)
-            {
-                // Drain new connections
-                int newFds = 0;
-                while (myQueue.TryDequeue(out int newFd))
-                {
-                    //connections[newFd] = ConnectionPool.Get().SetFd(newFd);
-                    ArmRecvMultishot(pring, newFd, c_bufferRingGID);
-                    worker.ConnCount++;
-                    newFds++;
-                }
-
-                if (newFds > 0)
-                {
-                    shim_submit(pring);
-                }
-
-                // Process completions
-                int got;
-                fixed (io_uring_cqe** pC = cqes)
-                    got = shim_peek_batch_cqe(pring, pC, (uint)s_batchCQES);
-
-                if (got <= 0)
-                {
-                    if (worker.ConnCount == 0)
-                    {
-                        Thread.Sleep(1);
-                        continue;
-                    }
-
-                    io_uring_cqe* oneCqe = null;
-                    if (shim_wait_cqe(pring, &oneCqe) != 0)
-                        continue;
-
-                    cqes[0] = oneCqe;
-                    got = 1;
-                }
-
-                //Console.WriteLine($"Worker {workerIndex} got {got}");
-
-                for (int i = 0; i < got; i++)
-                {
-                    //Console.WriteLine("inside cqe loop");
-                    
-                    var cqe = cqes[i];
-                    ulong ud = shim_cqe_get_data64(cqe);
-                    var kind = UdKindOf(ud);
-                    int res = cqe->res;
-
-                    if (kind == UdKind.Recv)
-                    {
-                        //Console.WriteLine("cqe -> recv");
-                        
-                        int fd = UdFdOf(ud);
-                        ushort bid = 0;
-                        bool hasBuffer = shim_cqe_has_buffer(cqe) != 0;
-                        bool hasMore = (cqe->flags & IORING_CQE_F_MORE) != 0;
-
-                        if (hasBuffer)
-                            bid = (ushort)shim_cqe_buffer_id(cqe);
-
-                        if (res <= 0)
-                        {
-                            //Console.WriteLine("res <= 0");
-                            
-                            // Return buffer BEFORE closing connection
-                            if (hasBuffer)
-                            {
-                                byte* addr = BR_Slab + (nuint)bid * (nuint)s_recvBufferSize;
-                                shim_buf_ring_add(BR, addr, (uint)s_recvBufferSize, bid, (ushort)BR_Mask, BR_Idx++);
-                                shim_buf_ring_advance(BR, 1);
-                            }
-
-                            if (connections.TryGetValue(fd, out var connection))
-                            {
-                                ConnectionPool.Return(connection);
-                                close(fd);
-                                worker.ConnCount--;
-                            }
-                        }
-                        else
-                        {
-                            //Console.WriteLine("res > 0");
-                            
-                            //byte* basePtr = BR_Slab + (nuint)bid * (nuint)s_recvBufferSize;
-
-                            //Console.WriteLine(hasMore);
-                            //Console.WriteLine($"[w{workerIndex}] FD {fd} request:\n{Encoding.UTF8.GetString(new ReadOnlySpan<byte>(basePtr, res))}");
-
-                            if (connections.TryGetValue(fd, out var connection))
-                            {
-                                connection.InPtr = BR_Slab + (nuint)bid * (nuint)s_recvBufferSize;
-                                connection.InLength = res;
-                                
-                                //int usedTotal = 0;
-                                while (true) // TODO: THis loop makes no sense
-                                {
-                                    //int used = ParseOne(basePtr + usedTotal, res - usedTotal);
-                                    int used = HeaderParser.FindCrlfCrlf(connection.InPtr, 0, connection.InLength);
-                                    if (used <= 0) break;
-                                    //usedTotal += used;
-
-                                    //Console.WriteLine($"Setting tcs.. {connection.Fd}");
-                                    var rr = connection.Tcs.TrySetResult(true);
-                                    if (rr == false)
-                                    {
-                                        //Console.WriteLine("Failed to set the tcs!");
-                                    }
-                                    
-                                    /*
-                                    connection.OutPtr = OK_PTR;
-                                    connection.OutTail = OK_LEN;
-                                    connection.OutHead = 0;
-                                    SubmitSend(pring, connection.Fd, connection.OutPtr, connection.OutHead, connection.OutTail);
-                                    */
-                                    
-                                    //processedReqs++;
-
-                                    break;
-                                }
-
-                                // Re-arm multishot if terminated
-                                if (!hasMore)
-                                {
-                                    ArmRecvMultishot(pring, fd, c_bufferRingGID);
-                                }
-                            }
-
-                            // Return buffer after processing
-                            byte* addr = BR_Slab + (nuint)bid * (nuint)s_recvBufferSize;
-                            shim_buf_ring_add(BR, addr, (uint)s_recvBufferSize, bid, (ushort)BR_Mask, BR_Idx++);
-                            shim_buf_ring_advance(BR, 1);
-                        }
-                    }
-                    else if (kind == UdKind.Send)
-                    {
-                        //Console.WriteLine("cqe -> send");
-                        
-                        int fd = UdFdOf(ud);
-
-                        if (connections.TryGetValue(fd, out var connection))
-                        {
-                            connection.OutHead += (nuint)res;
-                            if (connection.OutHead < connection.OutTail)
-                                SubmitSend(pring, connection.Fd, connection.OutPtr, connection.OutHead, connection.OutTail);
-                            else
-                                connection.Sending = false;
-                        }
-                    }
-
-                    shim_cqe_seen(pring, cqe);
-                }
-
-                if (shim_sq_ready(pring) > 0) shim_submit(pring);
+                }*/
             }
         }
         finally

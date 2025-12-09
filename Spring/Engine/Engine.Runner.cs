@@ -64,7 +64,6 @@ public sealed partial class OverdriveEngine
 
         // Start worker threads FIRST
         var workerThreads = new Thread[s_nWorkers];
-        var senderThreads = new Thread[s_nWorkers];
         for (int i = 0; i < s_nWorkers; i++)
         {
             int wi = i;
@@ -75,14 +74,6 @@ public sealed partial class OverdriveEngine
                 })
                 { IsBackground = true, Name = $"uring-w{wi}" };
             workerThreads[i].Start();
-            
-            /*senderThreads[i] = new Thread(() =>
-                {
-                    try { SenderLoop(wi); }
-                    catch (Exception ex) { Console.Error.WriteLine($"[w{wi}] crash: {ex}"); }
-                })
-                { IsBackground = true, Name = $"uring-s{wi}" };
-            senderThreads[i].Start();*/
         }
 
         // Give workers time to initialize

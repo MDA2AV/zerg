@@ -101,7 +101,11 @@ public sealed unsafe partial class OverdriveEngine
                     shim_cqe_seen(pring, cqe);
                 }
 
-                if (shim_sq_ready(pring) > 0) shim_submit(pring);
+                if (shim_sq_ready(pring) > 0)
+                {
+                    Console.WriteLine("Submitting3");
+                    shim_submit(pring);
+                }
             }
         }
         finally
@@ -146,7 +150,12 @@ public sealed unsafe partial class OverdriveEngine
     private static io_uring_sqe* SqeGet(io_uring* pring)
     {
         var sqe = shim_get_sqe(pring);
-        if (sqe == null) { shim_submit(pring); sqe = shim_get_sqe(pring); }
+        if (sqe == null)
+        {
+            Console.WriteLine("Submitting4");
+            shim_submit(pring); 
+            sqe = shim_get_sqe(pring); 
+        }
         return sqe;
     }
 
@@ -155,14 +164,6 @@ public sealed unsafe partial class OverdriveEngine
         var sqe = SqeGet(pring);
         shim_prep_send(sqe, fd, buf + off, (uint)(len - off), 0);
         shim_sqe_set_data64(sqe, PackUd(UdKind.Send, fd));
-    }
-    
-    public static void SubmitSend2(io_uring* pring, int fd, byte* buf, nuint off, nuint len)
-    {
-        var sqe = SqeGet(pring);
-        shim_prep_send(sqe, fd, buf + off, (uint)(len - off), 0);
-        shim_sqe_set_data64(sqe, PackUd(UdKind.Send, fd));
-        shim_submit(pring);
     }
 
     private static void ArmRecvMultishot(io_uring* pring, int fd, uint bgid)
