@@ -18,7 +18,72 @@
 // We pass those directly back to managed code.
 //
 
+/**
+ * Returns the ring's setup flags (IORING_SETUP_* bits) as stored in struct io_uring.
+ * This lets managed code check whether SQPOLL / SQ_AFF is actually active.
+ */
+unsigned shim_get_ring_flags(struct io_uring* ring)
+{
+    if (!ring) return 0;
+    return ring->flags;
+}
+
 /* -------- Ring lifecycle (simple queue_init path) -------- */
+
+/**
+ * Extended creator: allows passing io_uring_setup flags + SQPOLL tuning.
+ *
+ *  entries           : ring size
+ *  flags             : IORING_SETUP_* flags (e.g. IORING_SETUP_SQPOLL | IORING_SETUP_SQ_AFF)
+ *  sq_thread_cpu     : CPU to pin SQPOLL thread to (used only if IORING_SETUP_SQ_AFF is set).
+ *                      Pass -1 to let the kernel choose.
+ *  sq_thread_idle_ms : SQPOLL idle timeout in milliseconds (used only if IORING_SETUP_SQPOLL is set).
+ *
+ * Returns heap-allocated struct io_uring* or NULL on error.
+ * On failure, *err_out contains -errno from io_uring_queue_init_params or -ENOMEM.
+ */
+struct io_uring* shim_create_ring_ex(unsigned entries,
+                                     unsigned flags,
+                                     int      sq_thread_cpu,
+                                     unsigned sq_thread_idle_ms,
+                                     int*     err_out)
+{
+    struct io_uring* ring = (struct io_uring*)malloc(sizeof(struct io_uring));
+    if (!ring)
+    {
+        if (err_out) *err_out = -12; // -ENOMEM
+        return NULL;
+    }
+
+    memset(ring, 0, sizeof(*ring));
+
+    struct io_uring_params p;
+    memset(&p, 0, sizeof(p));
+
+    p.flags = flags;
+
+    if (flags & IORING_SETUP_SQPOLL)
+    {
+        // io_uring expects idle in milliseconds
+        p.sq_thread_idle = sq_thread_idle_ms;
+
+        if ((flags & IORING_SETUP_SQ_AFF) && sq_thread_cpu >= 0)
+        {
+            p.sq_thread_cpu = sq_thread_cpu;
+        }
+    }
+
+    int rc = io_uring_queue_init_params(entries, ring, &p);
+    if (rc < 0)
+    {
+        free(ring);
+        if (err_out) *err_out = rc;
+        return NULL;
+    }
+
+    if (err_out) *err_out = 0;
+    return ring;
+}
 
 /**
  * Allocates a struct io_uring and initializes a queue with 'entries'.
@@ -229,4 +294,40 @@ void shim_prep_send(struct io_uring_sqe* sqe,
 
 int shim_wait_cqe_timeout(struct io_uring *ring, struct io_uring_cqe **cqe_ptr, struct __kernel_timespec *ts) {
     return io_uring_wait_cqe_timeout(ring, cqe_ptr, ts);
+}
+
+/**
+ * Blocks until at least one CQE is available, or until timeout,
+ * or until 'wait_nr' CQEs are available (whichever comes first).
+ *
+ * Returns 0 on success, or -errno on error/timeout.
+ *
+ * Note: we pass NULL for sigmask, so no signal mask is applied.
+ */
+int shim_wait_cqes(struct io_uring *ring,
+                   struct io_uring_cqe **cqe_ptr,
+                   unsigned wait_nr,
+                   struct __kernel_timespec *ts)
+{
+    return io_uring_wait_cqes(ring, cqe_ptr, wait_nr, ts, NULL);
+}
+
+/**
+ * Blocks until at least one CQE is available or the timeout elapses.
+ *
+ * @param ring   The io_uring instance.
+ * @param cqe    Out: receives the pointer to the CQE when successful.
+ * @param timeout_ms  Timeout in milliseconds (>= 0).
+ *
+ * @return 0 on success, -ETIME on timeout, or -errno on error.
+ */
+int shim_wait_cqe_timeout_in(struct io_uring* ring,
+                          struct io_uring_cqe** cqe,
+                          long timeout_ms)
+{
+    struct __kernel_timespec ts;
+    ts.tv_sec  = timeout_ms / 1000;
+    ts.tv_nsec = (timeout_ms % 1000) * 1000000LL; // ms → ns
+
+    return io_uring_wait_cqe_timeout(ring, cqe, &ts);
 }
