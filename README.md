@@ -1,3 +1,5 @@
+[![NuGet](https://img.shields.io/nuget/v/uRocket.svg)](https://www.nuget.org/packages/uRocket/)
+
 ## Rocket - R(ing)(S)ocket
 
 Rocket is an experimental, low-level HTTP server built in C# on top of Linux **io_uring**. The goal of the project is not to abstract the system away, but to expose it: Rocket intentionally avoids “magic” layers and instead gives the developer direct control over sockets, buffers, queues, and scheduling. It is designed as a learning and benchmarking platform for understanding what modern Linux I/O can look like when combined with a managed runtime.
