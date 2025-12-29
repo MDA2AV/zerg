@@ -8,7 +8,7 @@
         
         <RootNamespace>URocket</RootNamespace>
 
-        <Title>Rocket</Title>
+        <Title>URocket</Title>
         <PackageId>URocket</PackageId>
         <Authors>Diogo Martins</Authors>
         <RepositoryUrl>https://github.com/MDA2AV/Rocket</RepositoryUrl>
