@@ -32,8 +32,7 @@ public sealed partial class RocketEngine {
     }
     public void Run() {
         Console.CancelKeyPress += (_, __) => StopAll = true;
-        InitOk();
-
+        
         // TODO This logic should be moved to the builder..
         // Create lock-free queues for fd distribution
         ReactorQueues = new ConcurrentQueue<int>[s_nReactors];
@@ -74,6 +73,5 @@ public sealed partial class RocketEngine {
         catch (Exception ex) { Console.Error.WriteLine($"[acceptor] crash: {ex}"); }
         
         foreach (var t in reactorThreads) t.Join();
-        FreeOk();
     }
 }

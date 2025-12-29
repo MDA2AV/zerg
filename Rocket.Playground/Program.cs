@@ -1,4 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
 using URocket;
 using RocketEngine = URocket.Engine.RocketEngine;
 
@@ -8,25 +10,30 @@ namespace Overdrive;
 
 [SkipLocalsInit]
 internal static class Program {
-    internal static async Task Main()
-    {
+    internal static async Task Main() {
+        InitOk();
         var builder = RocketEngine
             .CreateBuilder()
-            .ReactorQuant(() => Environment.ProcessorCount)
+            .ReactorQuant(() => Environment.ProcessorCount / 2)
             .Backlog(16 * 1024)
             .Port(8080);
         
         var engine = builder.Build();
         _ = Task.Run(() => engine.Run());
-        
-        while (true) {
-            var conn = await engine.AcceptAsync();
-            Console.WriteLine($"Connection: {conn.Fd}");
 
-            _ = HandleAsync(conn);
+        try {
+            while (true) {
+                var conn = await engine.AcceptAsync();
+                Console.WriteLine($"Connection: {conn.Fd}");
+
+                _ = HandleAsync(conn);
+            }
+        }
+        finally {
+            FreeOk();
         }
     }
-
+    
     private static async ValueTask HandleAsync(Connection connection) {
         try {
             while (true) {
@@ -44,9 +51,9 @@ internal static class Program {
                 }
                 connection.ResetRead();
                 unsafe {
-                    connection.OutPtr  = RocketEngine.OK_PTR;
+                    connection.OutPtr  = OK_PTR;
                     connection.OutHead = 0;
-                    connection.OutTail = RocketEngine.OK_LEN;
+                    connection.OutTail = OK_LEN;
 
                     RocketEngine.SubmitSend(
                         RocketEngine.s_Reactors[connection.ReactorId].Ring,
@@ -58,5 +65,25 @@ internal static class Program {
             }
         }catch (Exception e) { Console.WriteLine(e); }
         Console.WriteLine("end");
+    }
+    
+    public static unsafe byte* OK_PTR;
+    public static nuint OK_LEN;
+
+    private static unsafe void InitOk() {
+        var s = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\n\r\nHello, World!";
+        var a = Encoding.UTF8.GetBytes(s);
+        OK_LEN = (nuint)a.Length;
+        OK_PTR = (byte*)NativeMemory.Alloc(OK_LEN);
+        for (int i = 0; i < a.Length; i++)
+            OK_PTR[i] = a[i];
+    }
+
+    private static unsafe void FreeOk() {
+        if (OK_PTR != null) {
+            NativeMemory.Free(OK_PTR);
+            OK_PTR = null;
+            OK_LEN = 0;
+        }
     }
 }

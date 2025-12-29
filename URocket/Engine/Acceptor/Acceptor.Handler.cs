@@ -9,30 +9,26 @@ using static URocket.ABI.ABI;
 namespace URocket.Engine;
 
 public sealed unsafe partial class RocketEngine {
-    
-    public Acceptor SingleAcceptor { get; set; } = null!;
-
     public static void AcceptorHandler(Acceptor acceptor, int reactorCount) {
         try {
-            io_uring_cqe*[] cqes = new io_uring_cqe*[32];
             int nextReactor = 0;
             int one = 1;
             Console.WriteLine($"[acceptor] Load balancing across {reactorCount} reactors");
 
             while (!StopAll) {
                 int got;
-                fixed (io_uring_cqe** pC = cqes)
-                    got = shim_peek_batch_cqe(acceptor.Ring, pC, (uint)cqes.Length);
+                fixed (io_uring_cqe** pC = acceptor.Cqes)
+                    got = shim_peek_batch_cqe(acceptor.Ring, pC, (uint)acceptor.Cqes.Length);
 
                 if (got <= 0) {
                     io_uring_cqe* oneCqe = null;
                     if (shim_wait_cqe(acceptor.Ring, &oneCqe) != 0) continue;
-                    cqes[0] = oneCqe;
+                    acceptor.Cqes[0] = oneCqe;
                     got = 1;
                 }
 
                 for (int i = 0; i < got; i++) {
-                    io_uring_cqe* cqe = cqes[i];
+                    io_uring_cqe* cqe = acceptor.Cqes[i];
                     ulong ud = shim_cqe_get_data64(cqe);
                     UdKind kind = UdKindOf(ud);
                     int res = cqe->res;
@@ -72,76 +68,4 @@ public sealed unsafe partial class RocketEngine {
     
     // io_uring completion flags
     private const uint IORING_CQE_F_MORE = (1U << 1);
-
-    public static byte* OK_PTR;
-    public static nuint OK_LEN;
-
-    private static void InitOk() {
-        var s = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\n\r\nHello, World!";
-        var a = Encoding.UTF8.GetBytes(s);
-        OK_LEN = (nuint)a.Length;
-        OK_PTR = (byte*)NativeMemory.Alloc(OK_LEN);
-        for (int i = 0; i < a.Length; i++)
-            OK_PTR[i] = a[i];
-    }
-
-    private static void FreeOk() {
-        if (OK_PTR != null) {
-            NativeMemory.Free(OK_PTR);
-            OK_PTR = null;
-            OK_LEN = 0;
-        }
-    }
-
-    private static io_uring* CreateRing(uint flags, int sqThreadCpu, uint sqThreadIdleMs, out int err, uint ringEntries) {
-        if(flags == 0)
-            return shim_create_ring(ringEntries, out err);
-        return shim_create_ring_ex(ringEntries, flags, sqThreadCpu, sqThreadIdleMs, out err);
-    }
-
-    // TODO: This seems to be causing Segmentation fault (core dumped) when sqe is null
-    private static io_uring_sqe* SqeGet(io_uring* pring) {
-        io_uring_sqe* sqe = shim_get_sqe(pring);
-        if (sqe == null) {
-            Console.WriteLine("S4");
-            shim_submit(pring); 
-            sqe = shim_get_sqe(pring); 
-        }
-        return sqe;
-    }
-
-    public static void SubmitSend(io_uring* pring, int fd, byte* buf, nuint off, nuint len) {
-        io_uring_sqe* sqe = SqeGet(pring);
-        shim_prep_send(sqe, fd, buf + off, (uint)(len - off), 0);
-        shim_sqe_set_data64(sqe, PackUd(UdKind.Send, fd));
-    }
-
-    private static void ArmRecvMultishot(io_uring* pring, int fd, uint bgid) {
-        io_uring_sqe* sqe = SqeGet(pring);
-        shim_prep_recv_multishot_select(sqe, fd, bgid, 0);
-        shim_sqe_set_data64(sqe, PackUd(UdKind.Recv, fd));
-    }
-    
-    private static int CreateListenerSocket(string ip, ushort port) {
-        int lfd = socket(AF_INET, SOCK_STREAM, 0);
-        int one = 1;
-
-        setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &one, (uint)sizeof(int));
-        setsockopt(lfd, SOL_SOCKET, SO_REUSEPORT, &one, (uint)sizeof(int));
-
-        sockaddr_in addr = default;
-        addr.sin_family = (ushort)AF_INET;
-        addr.sin_port = Htons(port);
-
-        byte[] ipb = Encoding.UTF8.GetBytes(ip + "\0");
-        fixed (byte* pip = ipb) inet_pton(AF_INET, (sbyte*)pip, &addr.sin_addr);
-
-        bind(lfd, &addr, (uint)sizeof(sockaddr_in));
-        listen(lfd, s_backlog);
-
-        int fl = fcntl(lfd, F_GETFL, 0);
-        fcntl(lfd, F_SETFL, fl | O_NONBLOCK);
-
-        return lfd;
-    }
 }
