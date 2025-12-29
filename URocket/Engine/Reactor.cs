@@ -72,15 +72,13 @@ public sealed unsafe partial class Engine {
         internal void Handle() {
             Dictionary<int,Connection> connections = _engine.Connections[_id];
             ConcurrentQueue<int> reactorQueue = ReactorQueues[_id];     // new FDs from acceptor
-            
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
-            const long WaitTimeoutNs = 1_000_000; // 1 ms
 
             try {
                 while (_engine.ServerRunning) {
                     while (reactorQueue.TryDequeue(out int newFd)) { ArmRecvMultishot(Ring, newFd, c_bufferRingGID); }
                     if (shim_sq_ready(Ring) > 0) shim_submit(Ring);
-                    io_uring_cqe* cqe; __kernel_timespec ts; ts.tv_sec  = 0; ts.tv_nsec = WaitTimeoutNs; // 1 ms timeout
+                    io_uring_cqe* cqe; __kernel_timespec ts; ts.tv_sec  = 0; ts.tv_nsec = Config.CqTimeout; // 1 ms timeout
                     int rc = shim_wait_cqes(Ring, &cqe, (uint)1, &ts); int got;
                     
                     if (rc is -62 or < 0) { _counter++; continue; }
@@ -157,11 +155,10 @@ public sealed unsafe partial class Engine {
             Dictionary<int, Connection> connections = _engine.Connections[_id];
             ConcurrentQueue<int> myQueue = ReactorQueues[_id]; // new FDs from acceptor
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
+            
+            __kernel_timespec ts; ts.tv_sec = 0; ts.tv_nsec = Config.CqTimeout;
 
-            const long WaitTimeoutNs = 1_000_000; // 1 ms
-            __kernel_timespec ts; ts.tv_sec = 0; ts.tv_nsec = WaitTimeoutNs;
-
-            // Optional: if your shim exposes this, cache whether SQPOLL is enabled for this ring
+            // Optional: if shim exposes this, cache whether SQPOLL is enabled for this ring
             // (purely for metrics / readability; submit logic should still key off NEED_WAKEUP).
             uint ringSetupFlags = Ring != null ? shim_get_ring_flags(Ring) : 0;
             bool isSqPoll = (ringSetupFlags & IORING_SETUP_SQPOLL) != 0;
@@ -171,19 +168,19 @@ public sealed unsafe partial class Engine {
                     // Track whether we queued any SQEs this iteration.
                     bool queuedSqe = false;
 
-                    // 1) Drain acceptor queue and arm multishot recv for each new fd.
+                    // Drain acceptor queue and arm multishot recv for each new fd.
                     while (myQueue.TryDequeue(out int newFd)) {
                         ArmRecvMultishot(Ring, newFd, c_bufferRingGID);
                         queuedSqe = true;
                     }
 
-                    // 2) Submit only if we actually queued work (or if your ring says SQEs are pending).
-                    //    (If your Arm* methods can fail to get an SQE and you defer, keep shim_sq_ready too.)
+                    // Submit only if we actually queued work (or if your ring says SQEs are pending).
+                    //  (If Arm* methods can fail to get an SQE and we defer, keep shim_sq_ready too.)
                     if (queuedSqe || shim_sq_ready(Ring) > 0) {
                         // IMPORTANT for SQPOLL:
                         // shim_submit() MUST do the equivalent of:
                         // - if (IORING_SQ_NEED_WAKEUP) -> io_uring_enter(..., IORING_ENTER_SQ_WAKEUP)
-                        // If your shim doesn't, replace this call with a shim_submit_wakeup() that does.
+                        // If shim doesn't, replace this call with a shim_submit_wakeup() that does.
                         shim_submit(Ring);
                     }
 
@@ -301,7 +298,7 @@ public sealed unsafe partial class Engine {
                         shim_cqe_seen(Ring, cqe);
                     }
 
-                    // 4) If we queued SQEs while processing CQEs (re-arms / continued sends), submit once.
+                    // If we queued SQEs while processing CQEs (re-arms / continued sends), submit once.
                     if (queuedSqe || shim_sq_ready(Ring) > 0) {
                         // Same SQPOLL note as above: must wake on NEED_WAKEUP.
                         shim_submit(Ring);

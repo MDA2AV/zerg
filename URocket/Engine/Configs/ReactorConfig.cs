@@ -8,4 +8,5 @@ public sealed record ReactorConfig(
     int RecvBufferSize = 32 * 1024,
     int BufferRingEntries = 16 * 1024,
     int BatchCqes = 4096,
-    int MaxConnectionsPerReactor = 8 * 1024);
+    int MaxConnectionsPerReactor = 8 * 1024,
+    long CqTimeout = 1_000_000);
