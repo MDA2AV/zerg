@@ -96,7 +96,36 @@ public sealed unsafe partial class Engine {
                             bool hasMore   = (cqe->flags & IORING_CQE_F_MORE) != 0;
 
                             if (res <= 0) {
-                                Console.WriteLine($"{Id} {_counter}");
+                                Console.WriteLine($"[w{Id}] recv res={res} fd={fd}");
+
+                                // Return the CQE's provided buffer (if any)
+                                if (hasBuffer) {
+                                    ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
+                                    byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
+                                    shim_buf_ring_add(_bufferRing, addr, (uint)Config.RecvBufferSize, bufferId, (ushort)_bufferRingMask, _bufferRingIndex++);
+                                    shim_buf_ring_advance(_bufferRing, 1);
+                                }
+
+                                // REMOVE the connection mapping so we don't process this fd again,
+                                // and so fd reuse won't hit a stale Connection.
+                                if (connections.Remove(fd, out var connection)) {
+                                    // Return any queued buffers that the handler never consumed
+                                    while (connection.TryDequeueRecv(out var item)) {
+                                        shim_buf_ring_add(_bufferRing, item.Ptr, (uint)Config.RecvBufferSize, item.BufferId, (ushort)_bufferRingMask, _bufferRingIndex++);
+                                        shim_buf_ring_advance(_bufferRing, 1);
+                                    }
+                                    _engine.ConnectionPool.Return(connection);
+                                    // Close once (only if we owned this connection)
+                                    close(fd);
+                                } else {
+                                    // Already closed/removed it earlier; just ignore this late CQE.
+                                    // Must not close(fd) again.
+                                }
+                                shim_cqe_seen(Ring, cqe);
+                                continue;
+                            }
+                            /*if (res <= 0) {
+                                Console.WriteLine($" - {Id} {_counter}");
                                 if (hasBuffer) {
                                     ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
                                     byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
@@ -104,13 +133,34 @@ public sealed unsafe partial class Engine {
                                     shim_buf_ring_advance(_bufferRing, 1);
                                 }
                                 if (connections.TryGetValue(fd, out var connection)) {
+                                    // Return all buffers that were received earlier but not yet consumed by the handler.
+                                    while (connection.TryDequeueRecv(out var item)) {
+                                        // Return the buffer back to the buf_ring
+                                        shim_buf_ring_add(_bufferRing, item.Ptr, (uint)Config.RecvBufferSize, item.BufferId, (ushort)_bufferRingMask, _bufferRingIndex++);
+                                        shim_buf_ring_advance(_bufferRing, 1);
+                                    }
+                                    
+                                    // Remove from map so future CQEs don't find a stale connection
+                                    // TODO: Investigate this
+                                    //connections.Remove(fd);
                                     _engine.ConnectionPool.Return(connection);
-                                    close(fd);
                                 }
-                            } else {
+                                close(fd);
+                                //continue;
+                            }*/ else {
                                 var bufferId = (ushort)shim_cqe_buffer_id(cqe);
+                                var ptr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
+                                
+                                if (connections.TryGetValue(fd, out var connection)) {
+                                    // With buf_ring, you *should* have hasBuffer=true here; if not, handle separately.
+                                    connection.EnqueueRecv(ptr, res, bufferId);
+                                    if (!hasMore) ArmRecvMultishot(Ring, fd, c_bufferRingGID);
+                                } else {
+                                    // Late CQE for a dead/untracked fd: return buffer immediately
+                                    ReturnBufferRing(ptr, bufferId);
+                                }
 
-                                // TODO: Issue found, what if this triggers again before the client handles it, data is lost
+                                /*// TODO: Issue found, what if this triggers again before the client handles it, data is lost
                                 if (connections.TryGetValue(fd, out var connection)) {
                                     connection.HasBuffer = hasBuffer;
                                     connection.BufferId = bufferId;
@@ -119,7 +169,7 @@ public sealed unsafe partial class Engine {
                                     connection.SignalReadReady();
                                     
                                     if (!hasMore) ArmRecvMultishot(Ring, fd, c_bufferRingGID);
-                                }
+                                }*/
                             }
                         }
                         else if (kind == UdKind.Send) {
@@ -147,186 +197,6 @@ public sealed unsafe partial class Engine {
                 // Free slab memory used by buf ring
                 if (_bufferRingSlab != null) { NativeMemory.AlignedFree(_bufferRingSlab); _bufferRingSlab = null; }
                 Console.WriteLine($"[w{Id}] Shutdown complete.");
-            }
-        }
-        
-        // Experimental
-        private void HandleSQPoll() {
-            Dictionary<int, Connection> connections = _engine.Connections[Id];
-            ConcurrentQueue<int> myQueue = ReactorQueues[Id]; // new FDs from acceptor
-            io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
-            
-            __kernel_timespec ts; ts.tv_sec = 0; ts.tv_nsec = Config.CqTimeout;
-
-            // Optional: if shim exposes this, cache whether SQPOLL is enabled for this ring
-            // (purely for metrics / readability; submit logic should still key off NEED_WAKEUP).
-            uint ringSetupFlags = Ring != null ? shim_get_ring_flags(Ring) : 0;
-            bool isSqPoll = (ringSetupFlags & IORING_SETUP_SQPOLL) != 0;
-
-            try {
-                while (_engine.ServerRunning) {
-                    // Track whether we queued any SQEs this iteration.
-                    bool queuedSqe = false;
-
-                    // Drain acceptor queue and arm multishot recv for each new fd.
-                    while (myQueue.TryDequeue(out int newFd)) {
-                        ArmRecvMultishot(Ring, newFd, c_bufferRingGID);
-                        queuedSqe = true;
-                    }
-
-                    // Submit only if we actually queued work (or if your ring says SQEs are pending).
-                    //  (If Arm* methods can fail to get an SQE and we defer, keep shim_sq_ready too.)
-                    if (queuedSqe || shim_sq_ready(Ring) > 0) {
-                        // IMPORTANT for SQPOLL:
-                        // shim_submit() MUST do the equivalent of:
-                        // - if (IORING_SQ_NEED_WAKEUP) -> io_uring_enter(..., IORING_ENTER_SQ_WAKEUP)
-                        // If shim doesn't, replace this call with a shim_submit_wakeup() that does.
-                        shim_submit(Ring);
-                    }
-
-                    // 3) Wait for at least 1 CQE (1ms timeout), then drain the CQ in a batch.
-                    io_uring_cqe* cqe;
-                    int rc = shim_wait_cqes(Ring, &cqe, 1u, &ts);
-
-                    if (rc is -62 or < 0) { _counter++; continue; }
-
-                    int got;
-                    fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(Ring, pC, (uint)Config.BatchCqes);
-                    
-                    for (int i = 0; i < got; i++) {
-                        cqe = cqes[i];
-
-                        ulong ud = shim_cqe_get_data64(cqe);
-                        UdKind kind = UdKindOf(ud);
-                        int res = cqe->res;
-
-                        if (kind == UdKind.Recv) {
-                            int fd = UdFdOf(ud);
-
-                            bool hasBuffer = shim_cqe_has_buffer(cqe) != 0;
-                            bool hasMore = (cqe->flags & IORING_CQE_F_MORE) != 0;
-
-                            if (res <= 0) {
-                                // Return buffer to ring if kernel provided one.
-                                if (hasBuffer) {
-                                    ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                    byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
-                                    shim_buf_ring_add(
-                                        _bufferRing,
-                                        addr,
-                                        (uint)Config.RecvBufferSize,
-                                        bufferId,
-                                        (ushort)_bufferRingMask,
-                                        _bufferRingIndex++);
-                                    shim_buf_ring_advance(_bufferRing, 1);
-                                }
-
-                                // IMPORTANT: remove from dictionary BEFORE returning to pool / closing fd.
-                                // This prevents stale CQEs (already produced) from finding a recycled Connection.
-                                if (connections.TryGetValue(fd, out Connection? connection)) {
-                                    connections.Remove(fd);
-
-                                    _engine.ConnectionPool.Return(connection);
-                                    close(fd);
-                                }
-                            }else {
-                                ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
-
-                                if (connections.TryGetValue(fd, out Connection? connection)) {
-                                    connection.HasBuffer = hasBuffer;
-                                    connection.BufferId = bufferId;
-                                    connection.InPtr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
-                                    connection.InLength = res;
-
-                                    // Wake consumer
-                                    connection.SignalReadReady();
-
-                                    // If multishot stopped (no MORE flag), re-arm.
-                                    if (!hasMore) {
-                                        ArmRecvMultishot(Ring, fd, c_bufferRingGID);
-                                        queuedSqe = true;
-                                    }
-                                } else {
-                                    // Defensive: if we got a recv for an fd we don't track,
-                                    // return its buffer so we don't leak ring entries.
-                                    if (hasBuffer) {
-                                        byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
-                                        shim_buf_ring_add(
-                                            _bufferRing,
-                                            addr,
-                                            (uint)Config.RecvBufferSize,
-                                            bufferId,
-                                            (ushort)_bufferRingMask,
-                                            _bufferRingIndex++);
-                                        shim_buf_ring_advance(_bufferRing, 1);
-                                    }
-                                }
-                            }
-                        } else if (kind == UdKind.Send) {
-                            int fd = UdFdOf(ud);
-
-                            if (connections.TryGetValue(fd, out Connection? connection)) {
-                                if (res <= 0) {
-                                    // Treat send errors like close. Remove first to avoid stale use.
-                                    connections.Remove(fd);
-
-                                    // If this connection held a buffer ring entry, return it.
-                                    // (Only if your send path can happen while HasBuffer is true.)
-                                    if (connection.HasBuffer) {
-                                        ReturnBufferRing(connection.InPtr, connection.BufferId);
-                                        connection.HasBuffer = false;
-                                    }
-
-                                    _engine.ConnectionPool.Return(connection);
-                                    close(fd);
-                                } else {
-                                    connection.OutHead += (nuint)res;
-
-                                    if (connection.OutHead < connection.OutTail)
-                                    {
-                                        SubmitSend(
-                                            Ring,
-                                            connection.ClientFd,
-                                            connection.OutPtr,
-                                            connection.OutHead,
-                                            connection.OutTail);
-                                        queuedSqe = true;
-                                    }
-                                }
-                            }
-                        }
-                        shim_cqe_seen(Ring, cqe);
-                    }
-
-                    // If we queued SQEs while processing CQEs (re-arms / continued sends), submit once.
-                    if (queuedSqe || shim_sq_ready(Ring) > 0) {
-                        // Same SQPOLL note as above: must wake on NEED_WAKEUP.
-                        shim_submit(Ring);
-                    }
-                }
-            } finally {
-                // Close any remaining connections
-                CloseAll(connections);
-
-                // Free buffer ring BEFORE destroying the ring
-                if (Ring != null && _bufferRing != null) {
-                    shim_free_buf_ring(Ring, _bufferRing, (uint)Config.BufferRingEntries, c_bufferRingGID);
-                    _bufferRing = null;
-                }
-
-                // Destroy ring (unregisters CQ/SQ memory mappings)
-                if (Ring != null) {
-                    shim_destroy_ring(Ring);
-                    Ring = null;
-                }
-
-                // Free slab memory used by buf ring
-                if (_bufferRingSlab != null) {
-                    NativeMemory.AlignedFree(_bufferRingSlab);
-                    _bufferRingSlab = null;
-                }
-
-                Console.WriteLine($"[w{Id}] Shutdown complete. (SQPOLL={isSqPoll})");
             }
         }
         

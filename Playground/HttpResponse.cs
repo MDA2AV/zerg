@@ -14,10 +14,21 @@ public class HttpResponse
             var reactor = connection.Reactor;
             while (true) {
                 await connection.ReadAsync();
+                unsafe
+                {
+                    while (connection.TryDequeueRecv(out var item))
+                    {
+                        // Use item.Ptr/item.Length
+                        var span = new ReadOnlySpan<byte>(item.Ptr, item.Length);
 
-                Console.WriteLine($"{connection.Reactor.Id} Request received");
-                
-                unsafe {
+                        // ... parse / handle request here ...
+
+                        // Return the buffer to the ring AFTER you are done with it
+                        reactor.ReturnBufferRing(item.Ptr, item.BufferId);
+                    }
+                }
+
+                /*unsafe {
                     var span = new ReadOnlySpan<byte>(connection.InPtr, connection.InLength);
                     //var s = Encoding.UTF8.GetString(span);
                 }
@@ -26,9 +37,8 @@ public class HttpResponse
                     if (connection.HasBuffer) {
                         reactor.ReturnBufferRing(connection.InPtr, connection.BufferId);
                     }
-                }
+                }*/
                 
-                Console.WriteLine($"{connection.Reactor.Id} Calling reset..");
                 connection.ResetRead();
                 unsafe {
                     connection.OutPtr  = OK_PTR;
