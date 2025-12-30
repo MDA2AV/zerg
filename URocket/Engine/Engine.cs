@@ -10,8 +10,8 @@ namespace URocket.Engine;
 public sealed partial class Engine {
     
     private const int c_bufferRingGID = 1;
-    private int _nReactors;
-    
+    public int NReactors { get; set; }
+
     public bool ServerRunning { get; private set; }
     
     // Lock-free queues for passing accepted fds to reactors
@@ -35,11 +35,10 @@ public sealed partial class Engine {
     }
     
     public Engine() {
-        _nReactors = 16;
-
-        ReactorQueues = new ConcurrentQueue<int>[_nReactors];
-        ReactorConnectionCounts = new long[_nReactors];
-        ReactorRequestCounts = new long[_nReactors];
+        NReactors = 16;
+        ReactorQueues = new ConcurrentQueue<int>[NReactors];
+        ReactorConnectionCounts = new long[NReactors];
+        ReactorRequestCounts = new long[NReactors];
     }
     
     public struct ConnectionItem {
@@ -58,9 +57,9 @@ public sealed partial class Engine {
         SingleAcceptor.InitRing();
         
         // Init Reactors
-        Reactors = new Reactor[_nReactors];
-        Connections = new Dictionary<int, Connection>[_nReactors];
-        for (var i = 0; i < _nReactors; i++) {
+        Reactors = new Reactor[NReactors];
+        Connections = new Dictionary<int, Connection>[NReactors];
+        for (var i = 0; i < NReactors; i++) {
             ReactorQueues[i] = new ConcurrentQueue<int>();
             ReactorConnectionCounts[i] = 0;
             ReactorRequestCounts[i] = 0;
@@ -70,8 +69,8 @@ public sealed partial class Engine {
             Connections[i] = new Dictionary<int, Connection>(Reactors[i].Config.MaxConnectionsPerReactor);
         }
         
-        var reactorThreads = new Thread[_nReactors];
-        for (int i = 0; i < _nReactors; i++) {
+        var reactorThreads = new Thread[NReactors];
+        for (int i = 0; i < NReactors; i++) {
             int wi = i;
             reactorThreads[i] = new Thread(() => {
                 try { Reactors[wi].Handle(); }
@@ -82,11 +81,11 @@ public sealed partial class Engine {
         }
 
         var acceptorThread = new Thread(() => {
-            try { SingleAcceptor.Handle(SingleAcceptor, _nReactors); }
+            try { SingleAcceptor.Handle(SingleAcceptor, NReactors); }
             catch (Exception ex) { Console.Error.WriteLine($"[acceptor] crash: {ex}"); }
         });
         acceptorThread.Start();
-        Console.WriteLine($"Server started with {_nReactors} reactors + 1 acceptor");
+        Console.WriteLine($"Server started with {NReactors} reactors + 1 acceptor");
     }
     
     public void Stop() => ServerRunning = false;

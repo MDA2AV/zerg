@@ -16,7 +16,7 @@ public class HttpResponse
                 await connection.ReadAsync();
                 unsafe {
                     var span = new ReadOnlySpan<byte>(connection.InPtr, connection.InLength);
-                    var s = Encoding.UTF8.GetString(span);
+                    //var s = Encoding.UTF8.GetString(span);
                 }
                 
                 unsafe {
