@@ -42,7 +42,6 @@ public sealed partial class Engine {
     
     public async ValueTask<Connection> AcceptAsync2(CancellationToken cancellationToken = default) {
         var item = await ConnectionQueues.Reader.ReadAsync(cancellationToken);
-        
         return Connections[item.ReactorId][item.ClientFd];
     }
     

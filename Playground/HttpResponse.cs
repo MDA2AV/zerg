@@ -29,23 +29,6 @@ public class HttpResponse
                         connection.Reactor.EnqueueReturnQ(item.BufferId);
                     }
                 }
-
-                //var data = result.Buffer.ToArray();
-                //Console.WriteLine(Encoding.UTF8.GetString(data));
-                
-                /*unsafe
-                {
-                    while (connection.TryDequeueRecv(out var item))
-                    {
-                        // Use item.Ptr/item.Length
-                        var span = new ReadOnlySpan<byte>(item.Ptr, item.Length);
-
-                        // ... parse / handle request here ...
-                        
-                        //reactor.EnqueueReturn(item.BufferId);
-                        reactor.EnqueueReturnQ(item.BufferId);
-                    }
-                }*/
                 
                 connection.ResetRead();
                 unsafe {

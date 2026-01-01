@@ -72,10 +72,10 @@ public sealed unsafe partial class Engine {
         
         //private readonly ConcurrentQueue<ushort> _returns = new();
         //public void EnqueueReturn(ushort bid) => _returns.Enqueue(bid);
+        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
+        //public void EnqueueReturnQ2(ushort bid) => _returnQ.EnqueueSpin(bid);
         
         private readonly MpscUshortQueue _returnQ = new(1 << 16); // 65536 slots (pick a power-of-two)
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void EnqueueReturnQ2(ushort bid) => _returnQ.EnqueueSpin(bid);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void EnqueueReturnQ(ushort bid) {
             if (!_returnQ.TryEnqueue(bid)) {
@@ -109,11 +109,6 @@ public sealed unsafe partial class Engine {
                     // Drain new connections
                     while (reactorQueue.TryDequeue(out int newFd)) { ArmRecvMultishot(Ring, newFd, c_bufferRingGID); }
                     // Drain rings returns
-                    /*while (_returns.TryDequeue(out ushort bid)) {
-                        byte* addr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize;
-                        shim_buf_ring_add(_bufferRing, addr, (uint)Config.RecvBufferSize, bid, (ushort)_bufferRingMask, _bufferRingIndex++);
-                        shim_buf_ring_advance(_bufferRing, 1);
-                    }*/
                     DrainReturnQ();
                     if (shim_sq_ready(Ring) > 0) shim_submit(Ring);
                     
@@ -144,11 +139,6 @@ public sealed unsafe partial class Engine {
                                 // REMOVE the connection mapping so we don't process this fd again,
                                 // and so fd reuse won't hit a stale Connection.
                                 if (connections.Remove(fd, out var connection)) {
-                                    // Return any queued buffers that the handler never consumed
-                                    /*while (connection.TryDequeueRecv(out var item)) {
-                                        //EnqueueReturn(item.BufferId);
-                                        EnqueueReturnQ(item.BufferId);
-                                    }*/
                                     connection.MarkClosed(res);
                                     _engine.ConnectionPool.Return(connection);
                                     SubmitCancelRecv(Ring, fd);   // Cancel the multishot recv
@@ -224,43 +214,24 @@ public sealed unsafe partial class Engine {
             shim_prep_cancel64(sqe, target, /*flags*/ 0 /* or IORING_ASYNC_CANCEL_ALL */);
             shim_sqe_set_data64(sqe, PackUd(UdKind.Cancel, fd));
         }
-
         
-        private void CloseAll2(Dictionary<int, Connection> connections) {
-            foreach (var connection in connections) {
-                try { close(connection.Value.ClientFd); _engine.ConnectionPool.Return(connection.Value); } catch { /* ignore */ }
-            }
-        }
-        /*private void CloseAll(Dictionary<int, Connection> connections) {
+        private void CloseAll(Dictionary<int, Connection> connections) {
+
+            Console.WriteLine($"Remaining connections: {connections.Count}");
+            
             foreach (var kv in connections) {
                 var conn = kv.Value;
 
-                // Return any queued buffers
-                while (conn.TryDequeueRecv(out var item))
-                    EnqueueReturnQ(item.BufferId);
-
-                try { close(conn.ClientFd); } catch {  }
-                _engine.ConnectionPool.Return(conn);
-            }
-            connections.Clear();
-        }*/
-        
-        private void CloseAll(Dictionary<int, Connection> connections)
-        {
-            foreach (var kv in connections)
-            {
-                var conn = kv.Value;
-
-                // 1) Mark closed to wake any waiter.
+                // Mark closed to wake any waiter.
                 conn.MarkClosed(error: 0);
 
-                // 2) Remove mapping first (so late CQEs won't find it).
-                // (You're already doing remove on res<=0 path; do same here if needed.)
+                // Remove mapping first (so late CQEs won't find it).
+                // Already doing remove on res<=0 path; doing same here if needed.
 
-                // 3) Close fd
+                // Close fd
                 try { close(conn.ClientFd); } catch { /* ignore */ }
 
-                // 4) Pool it. Safe only because:
+                // Pool it. Safe only because:
                 //   - ReadAsync uses generation/closed => will return Closed for stale handlers
                 //   - We did NOT return any recv buffers here
                 _engine.ConnectionPool.Return(conn);
