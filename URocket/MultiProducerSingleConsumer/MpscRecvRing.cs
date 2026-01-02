@@ -1,17 +1,17 @@
 using System.Runtime.CompilerServices;
 
-namespace URocket.Utils;
+namespace URocket.MultiProducerSingleConsumer;
 
 public sealed unsafe class MpscRecvRing
 {
     private readonly RecvItem[] _items;
     private readonly int _mask;
 
+    // TODO: Should be long
     private int _tail; // producer-reserved count
     private int _head; // consumer position
 
-    public MpscRecvRing(int capacityPow2)
-    {
+    public MpscRecvRing(int capacityPow2) {
         if (capacityPow2 <= 0 || (capacityPow2 & (capacityPow2 - 1)) != 0)
             throw new ArgumentException("capacityPow2 must be a power of two", nameof(capacityPow2));
 
@@ -20,8 +20,7 @@ public sealed unsafe class MpscRecvRing
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryEnqueue(in RecvItem item)
-    {
+    public bool TryEnqueue(in RecvItem item) {
         // Fast full check (approx) using current head/tail
         int head = Volatile.Read(ref _head);
         int tail = Volatile.Read(ref _tail);
@@ -41,8 +40,7 @@ public sealed unsafe class MpscRecvRing
     public int SnapshotTail() => Volatile.Read(ref _tail);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryDequeueUntil(int tailSnapshot, out RecvItem item)
-    {
+    public bool TryDequeueUntil(int tailSnapshot, out RecvItem item) {
         int head = _head;
         if (head >= tailSnapshot)
         {
@@ -59,8 +57,7 @@ public sealed unsafe class MpscRecvRing
     public bool IsEmpty()
         => Volatile.Read(ref _head) >= Volatile.Read(ref _tail);
 
-    public void Clear()
-    {
+    public void Clear() {
         Volatile.Write(ref _head, 0);
         Volatile.Write(ref _tail, 0);
     }
