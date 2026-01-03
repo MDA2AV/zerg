@@ -134,6 +134,21 @@ public static unsafe partial class ABI{
     [DllImport("uringshim")]
     internal static extern int shim_submit_and_wait(io_uring* ring, uint waitNr);
     /// <summary>
+    /// Flushes pending SQEs (liburing), submits them, then waits until at least <paramref name="waitNr"/>
+    /// CQEs are available or the timeout elapses. On success, writes up to <paramref name="waitNr"/>
+    /// CQE pointers into <paramref name="cqes"/>.
+    /// </summary>
+    /// <returns>
+    /// On success: number of CQE pointers written into <paramref name="cqes"/> (typically 1..waitNr).
+    /// On failure: -errno (e.g. -ETIME on timeout).
+    /// </returns>
+    [DllImport("uringshim")]
+    internal static extern int shim_submit_and_wait_timeout(
+        io_uring* ring,
+        io_uring_cqe** cqes,
+        uint waitNr,
+        __kernel_timespec* ts);
+    /// <summary>
     /// Performs a direct <c>io_uring_enter(2)</c> syscall on the given ring.
     ///
     /// <para>
@@ -169,10 +184,12 @@ public static unsafe partial class ABI{
     /// <param name="flags">
     /// Flags passed directly to <c>io_uring_enter</c>, e.g.
     /// <c>IORING_ENTER_GETEVENTS</c>.
+    /// When using a timeout, <c>IORING_ENTER_EXT_ARG</c> is automatically added by the shim.
     /// </param>
     /// <param name="ts">
     /// Optional timeout (kernel timespec).
     /// Pass <c>null</c> for infinite wait.
+    /// When non-null, the shim uses io_uring_enter2 with extended argument format.
     /// </param>
     /// <returns>
     /// On success, returns the number of submitted SQEs.
@@ -344,7 +361,26 @@ public static unsafe partial class ABI{
     internal const uint IORING_SETUP_IOPOLL  = 1u << 0;
     internal const uint IORING_SETUP_SQPOLL  = 1u << 1;
     internal const uint IORING_SETUP_SQ_AFF  = 1u << 2;
+    
+    /*
+     CQE flags (32 bits):
+       ┌────────────────┬───────────────────┐
+       │  Buffer ID     │   Flag bits       │
+       │  (bits 16-31)  │   (bits 0-15)     │
+       └────────────────┴───────────────────┘
+             16 bits          16 bits
+       
+       Bit 0 (IORING_CQE_F_BUFFER): Set if kernel provided a buffer from buf-ring
+       Bit 1 (IORING_CQE_F_MORE):   Set if multishot operation will produce more CQEs
+       Bits 2-15: Reserved for other flags
+       Bits 16-31: Buffer ID (bid) when F_BUFFER is set
+     */
     internal const uint IORING_CQE_F_MORE = (1U << 1);
+    internal const uint IORING_CQE_F_BUFFER = (1U << 0); 
+    internal const int IORING_CQE_BUFFER_SHIFT = 16;  // Buffer ID is in upper 16 bits of flags
+    
     internal const int IORING_ASYNC_CANCEL_ALL = 1 << 0; // commonly this value
+    
     internal const uint IORING_ENTER_GETEVENTS = 1u << 0;
+    internal const uint IORING_ENTER_EXT_ARG = 1u << 3; 
 }
