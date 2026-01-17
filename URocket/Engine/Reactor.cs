@@ -269,6 +269,8 @@ public sealed unsafe partial class Engine {
                             if (connections.TryGetValue(fd, out var connection)) {
                                 connection.WriteHead += res;
                                 
+                                // TODO Improve logic to take care of cases where flush isn't fully done
+                                
                                 if (connection.WriteHead < connection.WriteTail) {
                                     Console.WriteLine("Oddness");
                                     SubmitSend(Ring, connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)connection.WriteTail);

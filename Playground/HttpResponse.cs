@@ -49,6 +49,8 @@ public class HttpResponse
                 var seq = mems.ToReadOnlySequence();
                 var reader = new SequenceReader<byte>(seq);
 
+                //TODO Add logic to deal with cases where the request isn't fully received or there is data left after all complete requests are parsed
+                
                 if (reader.TryReadTo(out ReadOnlySequence<byte> headers, "\r\n\r\n"u8)) {
                     // parse request
                     
