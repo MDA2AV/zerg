@@ -13,7 +13,8 @@ public unsafe partial class Connection : IBufferWriter<byte>, IDisposable {
     public int WriteHead { get; set; }
     public int WriteTail { get; set; }
 
-    public volatile bool Flushable = false;
+    public volatile bool CanFlush = true;
+    public volatile bool CanWrite = false;
 
     public Connection(int writeSlabSize = 1024 * 16) {
         _writeSlabSize = writeSlabSize;

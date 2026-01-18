@@ -164,10 +164,8 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
         Volatile.Write(ref _closed, 1);
 
         ResetWriteBuffer();
-        
-        // Reset send state
-        WriteHead = 0;
-        WriteTail = 0;
+        CanWrite = false;
+        CanFlush = true;
 
         // Reset read state
         Volatile.Write(ref _armed, 0);

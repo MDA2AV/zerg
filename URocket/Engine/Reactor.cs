@@ -124,14 +124,13 @@ public sealed unsafe partial class Engine {
         private readonly HashSet<int> _flushableFds = [];
         
         private void DrainWriteQ() {
-            //Console.WriteLine("Draining WriteQ");
             _flushableFds.Clear();
             
             while (_write.TryDequeue(out WriteItem item))
             {
                 if (_engine.Connections[Id].TryGetValue(item.ClientFd, out var connection))
                 {
-                    if (connection.Flushable)
+                    if (connection.CanWrite)
                     {
                         // Write buffer and free it
                         connection.Write(item.Buffer.Ptr, item.Buffer.Length);
@@ -146,8 +145,10 @@ public sealed unsafe partial class Engine {
             {
                 if (_engine.Connections[Id].TryGetValue(fd, out var connection))
                 {
-                    connection.Flush();
-                    connection.Flushable = false;
+                    connection.CanWrite = false; // Reset write flag for each drained connection
+                    
+                    if(connection.CanFlush)
+                        connection.Flush();
                 }
             }
         }
@@ -269,15 +270,20 @@ public sealed unsafe partial class Engine {
                             if (connections.TryGetValue(fd, out var connection)) {
                                 connection.WriteHead += res;
                                 
-                                // TODO Improve logic to take care of cases where flush isn't fully done
-                                
+                                // Some data was not flushed
+                                // We can either create a new submission to flush the remaining data or also
+                                // move it to the beginning of the buffer (extra copy), this extra copy can be useful
+                                // to avoid hitting the buffer limits
+                                // For now.. no copying, just create a new sqe
                                 if (connection.WriteHead < connection.WriteTail) {
                                     Console.WriteLine("Oddness");
+                                    connection.CanFlush = false;
                                     SubmitSend(Ring, connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)connection.WriteTail);
                                     continue;
                                     // queued SQE; flushed next loop
                                 }
-                                
+
+                                connection.CanFlush = true;
                                 connection.ResetWriteBuffer();
                                 //connection.ResetRead();
                             }

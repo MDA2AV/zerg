@@ -75,7 +75,7 @@ public class HttpResponse
                     throw new InvalidOperationException("Failed to write response");
                 }
                 
-                connection.Flushable = true;
+                connection.CanWrite = true;
                 connection.ResetRead();
             }
         } catch (Exception e) { Console.WriteLine(e); }
