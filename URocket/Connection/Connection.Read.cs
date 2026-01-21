@@ -245,4 +245,7 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
         
         return mems;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void ReturnRing(ushort bufferId) => Reactor.EnqueueReturnQ(bufferId);
 }
