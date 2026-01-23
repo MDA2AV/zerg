@@ -1,80 +1,96 @@
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks.Sources;
-using URocket.Utils;
-using URocket.Utils.MultiProducerSingleConsumer;
-using URocket.Utils.UnmanagedMemoryManager;
-using ReadResult = URocket.Utils.ReadResult;
-
 namespace URocket.Connection;
 
+using Utils.MultiProducerSingleConsumer;
+using ReadResult = Utils.ReadResult;
+
+using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks.Sources;
+
+/// <summary>
+/// A pooled, unsafe connection object used by a reactor-style networking engine.
+///
+/// Concurrency model:
+/// - Reactor thread produces inbound buffers by calling <see cref="EnqueueRingItem"/> and <see cref="MarkClosed"/>.
+/// - A single handler/consumer awaits inbound data via <see cref="ReadAsync"/> and drains using
+///   <see cref="TryGetRing"/> / <see cref="TryPeekRing"/> bounded by a tail snapshot.
+/// - The connection can be reused (pooled). <see cref="_generation"/> guards ValueTask tokens against reuse.
+///
+/// Key invariants:
+/// - Only ONE outstanding ReadAsync waiter is allowed per connection (enforced by <see cref="_armed"/>).
+/// - The recv ring is MPSC; consumer drains in batches defined by a tail snapshot.
+/// - A close transitions <see cref="_closed"/> from 0 to 1 (published), waking any waiter.
+/// </summary>
 [SkipLocalsInit]
 public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
 {
+    // =========================================================================
+    // Identity / ownership
+    // =========================================================================
+
+    /// <summary>Socket file descriptor for this connection.</summary>
     public int ClientFd { get; private set; }
+
+    /// <summary>Owning reactor (used to return buffers back to reactor-owned pool).</summary>
     public Engine.Engine.Reactor Reactor { get; private set; } = null!;
 
-    // Read completion primitive
+    // =========================================================================
+    // Read completion & state (single-consumer)
+    // =========================================================================
+
+    /// <summary>
+    /// Completion primitive for the single awaiting ReadAsync().
+    /// NOTE: ValueTask tokening is guarded by _generation, not by _readSignal.Version.
+    /// </summary>
     private ManualResetValueTaskSourceCore<ReadResult> _readSignal;
 
-    // 0/1 atomic flags
-    private int _armed;   // there is a waiter that must be woken
-    private int _pending; // data arrived while not armed (edge)
-
-    // Connection lifetime / pooling safety
-    private int _closed;      // 0=open, 1=closed (published)
-    private int _generation;  // incremented on Clear()/reuse
-
-    // Per-connection recv ring (MPSC, batch snapshot)
-    private readonly MpscRecvRing _recv = new(capacityPow2: 1024);
-    
-    
-
-    // --- Reactor thread API -------------------------------------------------
-
-    public long RingCount => _recv.GetTailHeadDiff();
-
     /// <summary>
-    /// Called by reactor thread: enqueue recv buffer and wake if there is a waiter.
+    /// 1 when a handler is waiting (armed) and must be woken by producer; otherwise 0.
+    /// Enforces: only one waiter at a time.
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void EnqueueRecv(byte* ptr, int length, ushort bufferId)
-    {
-        // If connection already closed/reused, just let reactor return the buffer elsewhere.
-        if (Volatile.Read(ref _closed) != 0)
-            return;
-
-        // If ring is full, you must decide a policy: drop/close/backpressure.
-        // Here: close semantics (safer than corrupting queue).
-        if (!_recv.TryEnqueue(new RecvItem(ptr, length, bufferId)))
-        {
-            // Mark pending close (handler will observe and stop)
-            Volatile.Write(ref _closed, 1);
-
-            // Wake waiter so it can exit
-            if (Interlocked.Exchange(ref _armed, 0) == 1)
-                _readSignal.SetResult(ReadResult.Closed(error: 0));
-            else
-                Volatile.Write(ref _pending, 1);
-
-            return;
-        }
-
-        // Wake edge-triggered
-        if (Interlocked.Exchange(ref _armed, 0) == 1)
-        {
-            // Provide a tail snapshot for this batch boundary
-            long snap = _recv.SnapshotTail();
-            _readSignal.SetResult(new ReadResult(snap, isClosed: false));
-        }
-        else
-        {
-            Volatile.Write(ref _pending, 1);
-        }
-    }
+    private int _armed;
 
     /// <summary>
-    /// Called by reactor thread when fd is closing (res <= 0).
-    /// Ensures awaiting handler wakes up and future reads return closed.
+    /// 1 indicates data (or close) arrived while not armed; makes next ReadAsync fast-path.
+    /// (edge-trigger style)
+    /// </summary>
+    private int _pending;
+
+    // =========================================================================
+    // Lifetime / pooling safety
+    // =========================================================================
+
+    /// <summary>
+    /// Published close flag.
+    /// 0 = open, 1 = closed (or connection is being/has been reused).
+    /// </summary>
+    private int _closed;
+
+    /// <summary>
+    /// Incremented on Clear()/reuse. Used as ValueTask token to invalidate old awaiters.
+    /// </summary>
+    private int _generation;
+
+    // =========================================================================
+    // Inbound recv ring (MPSC)
+    // =========================================================================
+
+    /// <summary>
+    /// Per-connection inbound ring.
+    /// Producers (reactor threads) enqueue received buffers; consumer drains.
+    /// </summary>
+    private readonly MpscRecvRing _recv = new(capacityPow2: 1024);
+
+    // =========================================================================
+    // Reactor thread API (producer side)
+    // =========================================================================
+
+    /// <summary>
+    /// Mark the connection as closed and wake any awaiting handler.
+    ///
+    /// Called by reactor thread when the underlying fd is closing (recv returns 0 or error).
+    /// After this is published, all future reads should complete as closed.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void MarkClosed(int error = 0)
@@ -87,63 +103,68 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
             Volatile.Write(ref _pending, 1);
     }
 
-    // --- Handler thread API -------------------------------------------------
+    // =========================================================================
+    // Handler thread API (consumer side)
+    // =========================================================================
 
     /// <summary>
-    /// Await until there is at least one recv available OR the connection is closed.
-    /// Returns a tail snapshot that defines the batch boundary.
+    /// Wait until there is at least one recv available OR the connection is closed.
+    ///
+    /// Returns:
+    /// - A <see cref="ReadResult"/> with a tail snapshot that defines the batch boundary.
+    ///   The consumer must drain items using that snapshot via <see cref="TryGetRing"/>.
+    ///
+    /// Rules:
+    /// - Only one outstanding call may be awaiting at once (single waiter).
+    /// - After draining the batch, call <see cref="ResetRead"/> to prepare for the next wait cycle.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueTask<ReadResult> ReadAsync() 
+    public ValueTask<ReadResult> ReadAsync()
     {
         // If already closed (or reused), complete synchronously as closed.
         if (Volatile.Read(ref _closed) != 0)
             return new ValueTask<ReadResult>(ReadResult.Closed());
 
-        // Fast path: something pending or ring not empty
+        // Fast path: pending signal or ring not empty.
+        // Pending is used as an "edge" bit: producer sets it when it couldn't wake a waiter.
         if (Volatile.Read(ref _pending) == 1 || !_recv.IsEmpty())
         {
             Volatile.Write(ref _pending, 0);
 
-            // It might have become closed just now
+            // It might have become closed just now.
             if (Volatile.Read(ref _closed) != 0)
                 return new ValueTask<ReadResult>(ReadResult.Closed());
 
             long snap = _recv.SnapshotTail();
+            SnapshotRingCount = (int)(snap - _recv.Head);
+            
             return new ValueTask<ReadResult>(new ReadResult(snap, isClosed: false));
         }
 
-        // Only one waiter is allowed
+        // Only one waiter is allowed.
         if (Interlocked.Exchange(ref _armed, 1) == 1)
             throw new InvalidOperationException("ReadAsync already armed.");
- 
-        // Capture generation to guard pooled reuse
+
+        // Capture generation to guard pooled reuse.
         int gen = Volatile.Read(ref _generation);
 
-        // If it closed between checks and arm, avoid hanging
+        // If it closed between checks and arm, avoid hanging.
         if (Volatile.Read(ref _closed) != 0)
         {
             Interlocked.Exchange(ref _armed, 0);
             return new ValueTask<ReadResult>(ReadResult.Closed());
         }
 
+        // NOTE: token uses generation. The underlying completion still uses _readSignal.Version internally.
         return new ValueTask<ReadResult>(this, (short)gen);
-        //return new ValueTask<ReadResult>(this, _readSignal.Version);
     }
 
     /// <summary>
-    /// Drain one batch (bounded by the tail snapshot you got from ReadAsync).
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetRing(long tailSnapshot, out RecvItem item)
-        => _recv.TryDequeueUntil(tailSnapshot, out item);
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryPeekRing(long tailSnapshot, out RecvItem item)
-        => _recv.TryPeekUntil(tailSnapshot, out item);
-
-    /// <summary>
-    /// Prepare for next wait cycle (call after finishing draining the batch).
+    /// Prepare for the next read cycle after you finish draining a batch.
+    ///
+    /// Why it exists:
+    /// - ManualResetValueTaskSourceCore is single-use until Reset() is called.
+    /// - Also re-establishes fast-path behavior when new data arrives while you were processing.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ResetRead()
@@ -159,34 +180,50 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
             Volatile.Write(ref _pending, 1);
     }
 
-    // --- Pooling / lifecycle ------------------------------------------------
+    // =========================================================================
+    // Pooling / lifecycle
+    // =========================================================================
 
+    /// <summary>
+    /// Reset this instance to a safe "closed" state for reuse.
+    ///
+    /// Important:
+    /// - Bumps <see cref="_generation"/> so any in-flight ValueTasks from a prior lifetime are invalidated.
+    /// - Publishes closed=1 so late producers/consumers do not wait indefinitely.
+    /// - Clears ring and resets completion state.
+    /// </summary>
     public void Clear()
     {
-        // Invalidate any awaiting token by bumping generation
+        // Invalidate any awaiting token by bumping generation.
         Interlocked.Increment(ref _generation);
 
-        // Mark closed so any late handler calls don't wait
+        // Publish closed so any late handler calls don't wait.
         Volatile.Write(ref _closed, 1);
 
+        // Write-side state (defined in another partial).
         ResetWriteBuffer();
         CanWrite = false;
         CanFlush = true;
 
-        // Reset read state
+        // Read-side state.
         Volatile.Write(ref _armed, 0);
         Volatile.Write(ref _pending, 0);
         _readSignal.Reset();
         _recv.Clear();
     }
 
+    /// <summary>Assign fd for a newly accepted connection.</summary>
     public Connection SetFd(int fd) { ClientFd = fd; return this; }
 
+    /// <summary>
+    /// Attach to a reactor and open the connection for a new lifetime.
+    /// Must be called when taking the connection from the pool for a new client.
+    /// </summary>
     public Connection SetReactor(Engine.Engine.Reactor reactor)
     {
         Reactor = reactor;
 
-        // New live connection: open it
+        // New live connection: open it.
         Volatile.Write(ref _closed, 0);
         Volatile.Write(ref _pending, 0);
         Volatile.Write(ref _armed, 0);
@@ -196,60 +233,51 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
         return this;
     }
 
-    // --- IValueTaskSource<ReadResult> plumbing ------------------------------
+    // =========================================================================
+    // IValueTaskSource<ReadResult> plumbing (tokened by generation)
+    // =========================================================================
 
+    /// <summary>
+    /// Complete the awaiting ReadAsync().
+    ///
+    /// Token semantics:
+    /// - token == generation captured at arm time.
+    /// - If the connection was cleared/reused, treat as closed (do not leak data across lifetimes).
+    /// </summary>
     ReadResult IValueTaskSource<ReadResult>.GetResult(short token)
     {
-        // token == generation at time of ReadAsync arm
-        // If the connection was cleared/reused, treat as closed.
         if (token != (short)Volatile.Read(ref _generation))
             return ReadResult.Closed();
 
+        // We use _readSignal.Version as the internal version because Reset() advances it.
         return _readSignal.GetResult(_readSignal.Version);
-        //return _readSignal.GetResult(token);
     }
 
+    /// <summary>
+    /// Report status for the awaiting ReadAsync().
+    /// If token is stale (reused), we report Succeeded so the awaiter will call GetResult and observe Closed().
+    /// </summary>
     ValueTaskSourceStatus IValueTaskSource<ReadResult>.GetStatus(short token)
     {
         if (token != (short)Volatile.Read(ref _generation))
-            return ValueTaskSourceStatus.Succeeded; // will yield Closed() in GetResult
+            return ValueTaskSourceStatus.Succeeded;
 
         return _readSignal.GetStatus(_readSignal.Version);
     }
 
+    /// <summary>
+    /// Register continuation for the awaiting ReadAsync().
+    /// If token is stale (reused), invoke continuation immediately.
+    /// </summary>
     void IValueTaskSource<ReadResult>.OnCompleted(
         Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags)
     {
         if (token != (short)Volatile.Read(ref _generation))
         {
-            // Complete immediately if it was reused
             continuation(state);
             return;
         }
 
         _readSignal.OnCompleted(continuation, state, _readSignal.Version, flags);
     }
-    
-    public UnmanagedMemoryManager[] GetAllRings(ReadResult readResult) 
-    {
-        var count = RingCount;
-
-        if (count == 1) 
-        {
-            TryGetRing(readResult.TailSnapshot, out var item);
-            return [item.AsUnmanagedMemoryManager()];
-        }
-        
-        var mems = new UnmanagedMemoryManager[count];
-        for (int i = 0; i < count; i++) 
-        {
-            TryGetRing(readResult.TailSnapshot, out var item);
-            mems[i] = item.AsUnmanagedMemoryManager();
-        }
-        
-        return mems;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void ReturnRing(ushort bufferId) => Reactor.EnqueueReturnQ(bufferId);
 }
