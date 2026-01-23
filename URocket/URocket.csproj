@@ -11,21 +11,21 @@
         <Title>URocket</Title>
         <PackageId>URocket</PackageId>
         <Authors>Diogo Martins</Authors>
-        <RepositoryUrl>https://github.com/MDA2AV/Rocket</RepositoryUrl>
+        <RepositoryUrl>https://github.com/MDA2AV/uRocket</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <AssemblyVersion>10.2.6</AssemblyVersion>
-        <FileVersion>10.2.6</FileVersion>
-        <Version>10.2.6</Version>
+        <AssemblyVersion>10.2.7</AssemblyVersion>
+        <FileVersion>10.2.7</FileVersion>
+        <Version>10.2.7</Version>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <PackageTags>uring</PackageTags>
+        <PackageTags>io_uring</PackageTags>
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
-        <Description>https://github.com/MDA2AV/Rocket</Description>
-        <PackageProjectUrl>https://github.com/MDA2AV/Rocket</PackageProjectUrl>
+        <Description>https://github.com/MDA2AV/uRocket</Description>
+        <PackageProjectUrl>https://github.com/MDA2AV/uRocket</PackageProjectUrl>
         
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.0-rc.2.25502.107" />
+        <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.2" />
     </ItemGroup>
 
     <ItemGroup>
