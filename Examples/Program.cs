@@ -1,5 +1,6 @@
 ﻿using Examples.ZeroAlloc.Advanced;
 using URocket.Engine;
+using URocket.Engine.Configs;
 
 namespace Examples;
 
@@ -12,11 +13,11 @@ internal class Program
         // Similar to Sockets, create an object and initialize it
         // By default set to IPv4 TCP
         // (More examples on how to configure the engine coming up)
-        var engine = new Engine
+        var engine = new Engine(new EngineOptions
         {
             Port = 8080,
-            NReactors = 12 // Single reactor, increase this number for higher throughput if needed.
-        };
+            ReactorCount = 12
+        });
         engine.Listen();
         
         var cts = new CancellationTokenSource();
