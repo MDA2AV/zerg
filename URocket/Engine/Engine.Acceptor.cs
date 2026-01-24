@@ -53,8 +53,8 @@ public sealed unsafe partial class Engine
             _acceptorConfig = acceptorConfig; 
             _engine = engine;
             _listenFd = acceptorConfig.IPVersion == IPVersion.IPv4Only 
-                ? CreateIPv4ListenerSocket(_engine.Ip, _engine.Port) 
-                : CreateListenerSocketDualStack(_engine.Ip, _engine.Port);
+                ? CreateIPv4ListenerSocket(_engine.Options.Ip, _engine.Options.Port) 
+                : CreateListenerSocketDualStack(_engine.Options.Ip, _engine.Options.Port);
             _cqes = new io_uring_cqe*[_acceptorConfig.BatchSqes];
         }
         /// <summary>

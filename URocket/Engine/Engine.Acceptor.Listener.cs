@@ -53,7 +53,7 @@ public sealed unsafe partial class Engine
                 if (bind(lfd, &addr, (uint)sizeof(sockaddr_in)) < 0)
                     ThrowErrno("bind");
 
-                if (listen(lfd, _engine.Backlog) < 0)
+                if (listen(lfd, _engine.Options.Backlog) < 0)
                     ThrowErrno("listen");
 
                 int fl = fcntl(lfd, F_GETFL, 0);
@@ -158,7 +158,7 @@ public sealed unsafe partial class Engine
                 if (bind(lfd, &addr6, (uint)sizeof(sockaddr_in6)) < 0)
                     ThrowErrno("bind(AF_INET6)");
 
-                if (listen(lfd, _engine.Backlog) < 0)
+                if (listen(lfd, _engine.Options.Backlog) < 0)
                     ThrowErrno("listen");
 
                 int fl = fcntl(lfd, F_GETFL, 0);
