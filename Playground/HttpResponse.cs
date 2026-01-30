@@ -10,6 +10,45 @@ namespace Playground;
 
 public class HttpResponse
 {
+    internal static async Task HandleConnectionAsync(Connection connection)
+    {
+        while (true)
+        {
+            ReadResult result = await connection.ReadAsync();
+            if (result.IsClosed)
+                break;
+
+            // Get all ring buffers data
+            UnmanagedMemoryManager[] rings = connection.GetAllSnapshotRingsAsUnmanagedMemory(result);
+            ReadOnlySequence<byte> sequence = rings.ToReadOnlySequence();
+
+            // Process received data...
+
+            // Return rings to the kernel
+            foreach (UnmanagedMemoryManager ring in rings)
+                connection.ReturnRing(ring.BufferId);
+
+            // Write the response directly into the connection slab
+            ReadOnlySpan<byte> msg =
+                "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nHello, World!"u8;
+
+            WriteDirect(connection, msg);
+
+            // New: async flush barrier (wait until fully flushed to kernel)
+            await connection.FlushAsync();
+
+            // Ready for next read cycle
+            connection.ResetRead();
+        }
+    }
+    
+    private static void WriteDirect(Connection connection, ReadOnlySpan<byte> msg)
+    {
+        Span<byte> dst = connection.GetSpan(msg.Length);
+        msg.CopyTo(dst);
+        connection.Advance(msg.Length);
+    }
+    
     internal static async ValueTask HandleAsync(Connection connection) {
         try {
             while (true) {

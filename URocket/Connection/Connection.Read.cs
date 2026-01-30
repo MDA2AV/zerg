@@ -1,14 +1,9 @@
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks.Sources;
+using URocket.Utils;
 using URocket.Utils.SingleProducerSingleConsumer;
 
 namespace URocket.Connection;
-
-using Utils.MultiProducerSingleConsumer;
-using ReadResult = Utils.ReadResult;
-
-using System;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks.Sources;
 
 /// <summary>
 /// A pooled, unsafe connection object used by a reactor-style networking engine.

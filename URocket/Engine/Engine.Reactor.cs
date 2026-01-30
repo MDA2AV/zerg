@@ -192,52 +192,46 @@ public sealed unsafe partial class Engine
         /// <summary>
         /// MPSC queue for outbound writes coming from application threads.
         /// </summary>
-        private readonly MpscWriteItem _write = new(capacityPow2: 1024);
+        //private readonly MpscWriteItem _write = new(capacityPow2: 1024);
 
-        public bool TryEnqueueWrite(WriteItem item) => _write.TryEnqueue(item);
+        //public bool TryEnqueueWrite(WriteItem item) => _write.TryEnqueue(item);
 
-        public bool TryDequeueWrite(out WriteItem item) => _write.TryDequeue(out item);
-        /// <summary>
-        /// Drain write queue, copy buffers into connection write slabs,
-        /// and issue send SQEs for all affected connections.
-        /// </summary>
-        private void DrainWriteQ() 
+        //public bool TryDequeueWrite(out WriteItem item) => _write.TryDequeue(out item);
+        
+        private readonly MpscIntQueue _flushQ = new(capacityPow2: 4096);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void EnqueueFlush(int fd)
         {
-            _flushableFds.Clear();
-            
-            while (_write.TryDequeue(out WriteItem item))
+            while (!_flushQ.TryEnqueue(fd))
+                Thread.Yield();
+        }
+
+        private void DrainFlushQ()
+        {
+            while (_flushQ.TryDequeue(out int fd))
             {
-                if (_engine.Connections[Id].TryGetValue(item.ClientFd, out var connection))
-                {
-                    if (connection.CanWrite)
-                    {
-                        // Write buffer and free it
-                        connection.Write(item.Buffer.Ptr, item.Buffer.Length);
-                        item.Buffer.Free();
-                        
-                        _flushableFds.Add(connection.ClientFd);
-                    }
-                }
-            }
+                if (!_engine.Connections[Id].TryGetValue(fd, out var connection)) 
+                    continue;
+                
+                if (connection is not { CanFlush: true, CanWrite: true }) 
+                    continue;
+                    
+                connection.CanWrite = false;
+                connection.CanFlush = false;
 
-            foreach (int fd in _flushableFds)
-            {
-                if (_engine.Connections[Id].TryGetValue(fd, out var connection))
-                {
-                    connection.CanWrite = false; // Reset write flag for each drained connection
+                // Snapshot target captured by client FlushAsync()
+                // We will flush exactly up to c.FlushTarget.
+                connection.WriteHead = 0;                // or keep if you support streaming
+                connection.WriteInFlight = connection.FlushTarget;
 
-                    if (connection.CanFlush)
-                    {
-                        Send(connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead,
-                            (uint)connection.WriteTail);
-
-                        // Data is sent to kernel, until we don't have confirmation that
-                        // this data was fully processed by the kernel we don't send more data to it 
-                        connection.CanFlush = false;
-                    }
-                }
+                Send(connection.ClientFd, 
+                    connection.WriteBuffer, 
+                    (uint)connection.WriteHead, 
+                    (uint)connection.WriteInFlight);
             }
         }
+        
         /// <summary>
         /// Enqueue a send SQE for this reactor's ring.
         /// </summary>

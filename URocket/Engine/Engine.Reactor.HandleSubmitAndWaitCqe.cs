@@ -37,7 +37,7 @@ public sealed unsafe partial class Engine
                     
                     DrainReturnQ(); // Drain rings returns
                     
-                    DrainWriteQ();
+                    DrainFlushQ();
                     
                     if (shim_sq_ready(io_uring_instance) > 0) 
                         shim_submit(io_uring_instance);
@@ -134,7 +134,12 @@ public sealed unsafe partial class Engine
                                 {
                                     Console.WriteLine("Oddness");
                                     connection.CanFlush = false;
-                                    SubmitSend(io_uring_instance, connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)connection.WriteTail);
+                                    SubmitSend(
+                                        io_uring_instance, 
+                                        connection.ClientFd, 
+                                        connection.WriteBuffer, 
+                                        (uint)connection.WriteHead, 
+                                        (uint)connection.WriteTail);
                                     continue;
                                     // queued SQE; flushed next loop
                                 }
