@@ -28,10 +28,10 @@ internal sealed class Rings_as_ReadOnlySpan
             var msg =
                 "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nHello, World!"u8;
 
-            connection.InnerWrite(msg);
+            connection.Write(msg);
             
             // Signal that written data can be flushed
-            await connection.InnerFlushAsync();
+            await connection.FlushAsync();
             // Signal we are ready for a new read
             connection.ResetRead();
         }

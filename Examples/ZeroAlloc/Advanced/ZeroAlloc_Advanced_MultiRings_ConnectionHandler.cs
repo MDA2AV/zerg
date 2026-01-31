@@ -37,7 +37,7 @@ internal sealed class ZeroAlloc_Advanced_MultiRings_ConnectionHandler
 
                 if (HandleResult(connection, ref result))
                 {
-                    await connection.InnerFlushAsync(); // Mark data to be ready to be flushed
+                    await connection.FlushAsync(); // Mark data to be ready to be flushed
                 }
 
                 // Reset connection's ManualResetValueTaskSourceCore<ReadResult>
@@ -224,7 +224,7 @@ internal sealed class ZeroAlloc_Advanced_MultiRings_ConnectionHandler
         var msg =
             "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nHello, World!"u8;
 
-        connection.InnerWrite(msg);
+        connection.Write(msg);
     }
     
     

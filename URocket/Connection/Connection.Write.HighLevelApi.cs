@@ -8,7 +8,7 @@ public partial class Connection
     /// Appends a managed buffer into the write slab.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public unsafe void InnerWrite(ReadOnlyMemory<byte> source)
+    public unsafe void Write(ReadOnlyMemory<byte> source)
     {
         if (Volatile.Read(ref _flushInProgress) != 0)
             throw new InvalidOperationException("Cannot write while flush is in progress.");
@@ -28,7 +28,7 @@ public partial class Connection
     /// Appends a span into the write slab.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public unsafe void InnerWrite(ReadOnlySpan<byte> source) 
+    public unsafe void Write(ReadOnlySpan<byte> source) 
     {
         if (Volatile.Read(ref _flushInProgress) != 0)
             throw new InvalidOperationException("Cannot write while flush is in progress.");
@@ -50,7 +50,7 @@ public partial class Connection
     /// - Completes when reactor calls <see cref="CompleteFlush"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueTask InnerFlushAsync()
+    public ValueTask FlushAsync()
     {
         // Start flush barrier (handler must not write until completion)
         if (Interlocked.Exchange(ref _flushInProgress, 1) == 1)

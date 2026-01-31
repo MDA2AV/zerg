@@ -62,10 +62,10 @@ public class HttpResponse
             ReadOnlySpan<byte> msg =
                 "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nHello, World!"u8;
 
-            connection.InnerWrite(msg);
+            connection.Write(msg);
 
             // New: async flush barrier (wait until fully flushed to kernel)
-            await connection.InnerFlushAsync();
+            await connection.FlushAsync();
 
             // Ready for next read cycle
             connection.ResetRead();

@@ -8,7 +8,7 @@ public unsafe partial class Connection
     /// Copies unmanaged memory into the write slab.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void InnerWrite(byte* ptr, int length)
+    internal void Write(byte* ptr, int length)
     {
         if (Volatile.Read(ref _flushInProgress) != 0)
             throw new InvalidOperationException("Cannot write while flush is in progress.");
