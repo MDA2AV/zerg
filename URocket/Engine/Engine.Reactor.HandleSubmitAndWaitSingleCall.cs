@@ -131,37 +131,35 @@ public sealed unsafe partial class Engine
                         else if (kind == UdKind.Send) 
                         {
                             int fd = UdFdOf(ud);
-                            if (connections.TryGetValue(fd, out var connection))
+                            if (connections.TryGetValue(fd, out var c))
                             {
                                 if (res <= 0)
                                 {
-                                    // error/close handling (like recv path)
+                                    // error/close handling
+                                    Volatile.Write(ref c.SendInflight, 0);
                                     continue;
                                 }
 
-                                connection.WriteHead += res;
+                                c.WriteHead += res;
 
-                                // Still flushing the "flush target" captured at FlushAsync()
-                                if (connection.WriteHead < connection.WriteInFlight)
+                                int target = c.WriteInFlight;
+
+                                // Still flushing target snapshot
+                                if (c.WriteHead < target)
                                 {
-                                    // Resubmit remainder of the SAME flush batch (correct ordering)
-                                    SubmitSend(io_uring_instance, 
-                                        fd, 
-                                        connection.WriteBuffer, 
-                                        (uint)connection.WriteHead, 
-                                        (uint)connection.WriteInFlight);
+                                    // Correct: len is total-end (target), not remaining
+                                    SubmitSend(io_uring_instance, fd, c.WriteBuffer, (uint)c.WriteHead, (uint)target);
                                     continue;
                                 }
-                                
-                                connection.CanFlush = true;
-                                connection.ResetWriteBuffer();
-                                connection.WriteInFlight = 0;
-                                
-                                if (connection.IsFlushInProgress)
-                                {
-                                    connection.CompleteFlush();
-                                    connection.ResetFlushState();
-                                }
+
+                                // Flush batch done
+                                Volatile.Write(ref c.SendInflight, 0);
+
+                                c.WriteInFlight = 0;
+                                c.ResetWriteBuffer(); // safe because _flushInProgress forbids concurrent writes
+
+                                if (c.IsFlushInProgress)
+                                    c.CompleteFlush();
                             }
                         } 
                         else if (kind == UdKind.Cancel) 

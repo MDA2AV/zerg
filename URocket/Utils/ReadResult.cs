@@ -1,3 +1,4 @@
+using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 
 namespace URocket.Utils;

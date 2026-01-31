@@ -189,14 +189,6 @@ public sealed unsafe partial class Engine
             }
             return count;
         }
-        /// <summary>
-        /// MPSC queue for outbound writes coming from application threads.
-        /// </summary>
-        //private readonly MpscWriteItem _write = new(capacityPow2: 1024);
-
-        //public bool TryEnqueueWrite(WriteItem item) => _write.TryEnqueue(item);
-
-        //public bool TryDequeueWrite(out WriteItem item) => _write.TryDequeue(out item);
         
         private readonly MpscIntQueue _flushQ = new(capacityPow2: 4096);
 
@@ -211,24 +203,33 @@ public sealed unsafe partial class Engine
         {
             while (_flushQ.TryDequeue(out int fd))
             {
-                if (!_engine.Connections[Id].TryGetValue(fd, out var connection)) 
+                if (!_engine.Connections[Id].TryGetValue(fd, out var c))
                     continue;
-                
-                if (connection is not { CanFlush: true, CanWrite: true }) 
+
+                // If already have a send in flight, do nothing:
+                // the CQE path will continue draining to WriteInFlight.
+                if (Volatile.Read(ref c.SendInflight) != 0)
                     continue;
-                    
-                connection.CanWrite = false;
-                connection.CanFlush = false;
 
-                // Snapshot target captured by client FlushAsync()
-                // We will flush exactly up to c.FlushTarget.
-                connection.WriteHead = 0;                // or keep if you support streaming
-                connection.WriteInFlight = connection.FlushTarget;
+                // If nothing to flush (or flush target not set), do nothing.
+                // FlushAsync sets WriteInFlight = tail snapshot.
+                int target = c.WriteInFlight;
+                if (target <= 0)
+                    continue;
 
-                Send(connection.ClientFd, 
-                    connection.WriteBuffer, 
-                    (uint)connection.WriteHead, 
-                    (uint)connection.WriteInFlight);
+                // Start sending from current head (should be 0 for slab reset model)
+                // If you ever keep head across flushes, this still works.
+                if (c.WriteHead >= target)
+                {
+                    // already satisfied
+                    if (c.IsFlushInProgress)
+                        c.CompleteFlush();
+                    continue;
+                }
+
+                Volatile.Write(ref c.SendInflight, 1);
+
+                Send(c.ClientFd, c.WriteBuffer, (uint)c.WriteHead, (uint)target);
             }
         }
         

@@ -8,29 +8,47 @@ using static Playground.HttpResponse;
 namespace Playground;
 
 [SkipLocalsInit]
-internal static class Program {
-    internal static async Task Main() {
-        InitOk();
-        try { await Execute(); } finally { FreeOk(); }
+internal static class Program 
+{
+    internal static async Task Main() 
+    {
+        await Execute(); 
     }
 
-    private static async Task Execute() {
+    private static async Task Execute() 
+    {
         var engine = new Engine(new EngineOptions
         {
             Port = 8080,
             ReactorCount = 12
         });
         engine.Listen();
+        
+        var cts = new CancellationTokenSource();
 
-        _ = Task.Run(() => {
+        _ = Task.Run(async () => 
+        {
             Console.ReadLine();
             engine.Stop();
-        });
+            await cts.CancelAsync();
             
-        while (engine.ServerRunning) {
-            var conn = await engine.AcceptAsync();
-            Console.WriteLine($"Connection: {conn.ClientFd}");
-            _ = HandleConnectionAsync(conn);
+        }, cts.Token);
+            
+        try
+        {
+            while (engine.ServerRunning) 
+            {
+                var conn = await engine.AcceptAsync(cts.Token);
+                Console.WriteLine($"Connection: {conn.ClientFd}");
+                
+                _ = HandleConnectionStreamAsync(conn);
+            }
         }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("Signaled to stop");
+        }
+
+        Console.WriteLine("Execution finished.");
     }
 }
