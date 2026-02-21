@@ -1,6 +1,9 @@
 using System.Buffers;
+using System.Diagnostics.Contracts;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using URocket.Connection;
 using URocket.Utils;
 using URocket.Utils.UnmanagedMemoryManager;
@@ -12,8 +15,18 @@ internal sealed class ConnectionHandler
     private readonly unsafe byte* _inflightData;
     private int _inflightTail;
     private readonly int _length;
+    
+    [ThreadStatic]
+    private static Utf8JsonWriter? t_writer;
+    private static readonly JsonContext SerializerContext = JsonContext.Default;
+    
+    private const string _jsonBody = "Hello, World!";
+    private static ReadOnlySpan<byte> s_plainTextBody => "Hello, World!"u8;
+    
+    private static ReadOnlySpan<byte> s_headersJson => "HTTP/1.1 200 OK\r\nContent-Length:   \r\nServer: S\r\nContent-Type: application/json\r\n"u8;
+    private static ReadOnlySpan<byte> s_headersPlainText => "HTTP/1.1 200 OK\r\nContent-Length:   \r\nServer: S\r\nContent-Type: text/plain\r\n"u8;
 
-    public unsafe ConnectionHandler(int length = 1024 * 16)
+    public unsafe ConnectionHandler(int length = 1024 * 128)
     {
         _length = length;
         
@@ -34,8 +47,8 @@ internal sealed class ConnectionHandler
                 var result = await connection.ReadAsync(); // Read data from the wire
                 if (result.IsClosed)
                     break;
-
-                if (HandleResult(connection, ref result))
+                
+                if (HandleResult2(connection, ref result))
                 {
                     await connection.FlushAsync(); // Mark data to be ready to be flushed
                 }
@@ -52,6 +65,64 @@ internal sealed class ConnectionHandler
         {
             unsafe { NativeMemory.AlignedFree(_inflightData); }
         }
+    }
+
+    private unsafe bool HandleResult2(Connection connection, ref ReadResult result)
+    {
+        bool flushable = false;
+        
+        UnmanagedMemoryManager[] rings = connection.PeekAllSnapshotRingsAsUnmanagedMemory(result);
+        int ringsTotalLength = CalculateRingsTotalLength(rings);
+        int ringCount = rings.Length;
+        
+        if(ringCount == 0)
+            return false;
+        
+        if (_inflightTail == 0)
+        {
+            flushable = HandleNoInflight(connection, rings, out int advanced);
+        }
+        
+        // Return the rings to the kernel, at this stage the request was either handled or the rings' data
+        // has already been copied to the inflight buffer.
+        for (int i = 0; i < rings.Length; i++) connection.ReturnRing(rings[i].BufferId);
+        return flushable;
+    }
+    
+    [SkipLocalsInit][Pure][MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static unsafe bool HandleNoInflight(Connection connection, UnmanagedMemoryManager[] rings, out int advanced)
+    {
+        advanced = 0;
+        
+        int idx;
+        bool flushable = false;
+        
+        // Single ring
+        if (rings.Length == 1)
+        {
+            ReadOnlySpan<byte> singleRingData = new ReadOnlySpan<byte>(rings[0].Ptr, rings[0].Length);
+
+            while (true)
+            {
+                idx = singleRingData.IndexOf("\r\n\r\n"u8);
+                if (idx == -1) return flushable;
+
+                int idx4 = idx + 4;
+                advanced += idx4;
+                int space1 = singleRingData.IndexOf((byte)' ');
+                int space2 = singleRingData[(space1 + 1)..].IndexOf((byte)' ');
+        
+                ReadOnlySpan<byte> route = singleRingData[(space1 + 1)..(space1 + space2)];
+                
+                WriteResponse(connection, route[1] == (byte)'j');
+                flushable = true;
+                if (idx4 >= singleRingData.Length) break;
+                
+                singleRingData = singleRingData[idx4..];
+            }
+        }
+
+        return true;
     }
 
     private unsafe bool HandleResult(Connection connection, ref ReadResult result)
@@ -73,7 +144,7 @@ internal sealed class ConnectionHandler
             // per read as we may read an incomplete, one single or multiple requests at once
         {
             bool found;
-            int advanced;
+            int advanced = 0;
             // Here we want to merge existing inflight data with the just read new data
             if (_inflightTail == 0)
             {
@@ -160,15 +231,21 @@ internal sealed class ConnectionHandler
             advanced = 0;
             return false;
         }
-        
+
         advanced += 4;
 
         var requestSpan = data[..advanced];
+
+        var space1 = requestSpan.IndexOf((byte)' ');
+        var space2 = requestSpan[(space1 + 1)..].IndexOf((byte)' ');
         
+        var route = requestSpan[(space1 + 1)..(space1 + space2)];
+
         // Handle the request
         // ...
-        if(found) WriteResponse(connection); // Simulating writing the response after handling the received request
-
+        if (found)
+            WriteResponse(connection, route[1] == (byte)'j');
+        
         return found;
     }
 
@@ -186,9 +263,14 @@ internal sealed class ConnectionHandler
 
         position = reader.Position.GetInteger();
 
+        var reader2 = new SequenceReader<byte>(headersSequence);
+        reader2.TryReadTo(out ReadOnlySpan<byte> _, (byte)' ');
+        reader2.TryReadTo(out ReadOnlySpan<byte> route, (byte)' ');
+
         // Handle the request
         // ...
-        if(found) WriteResponse(connection); // Simulating writing the response after handling the received request
+        if(found) 
+            WriteResponse(connection, route[1] == (byte)'j'); // Simulating writing the response after handling the received request
 
         return found;
     }
@@ -208,22 +290,63 @@ internal sealed class ConnectionHandler
         // Calculating how many bytes from the received rings were consumed
         // inflight data is subtracted
         position = reader.Position.GetInteger() - unmanagedMemories[0].Length;
-
+        
+        var reader2 = new SequenceReader<byte>(headersSequence);
+        reader2.TryReadTo(out ReadOnlySpan<byte> _, (byte)' ');
+        reader2.TryReadTo(out ReadOnlySpan<byte> route, (byte)' ');
+        
         // Handle the request
         // ...
-        if(found) WriteResponse(connection); // Simulating writing the response after handling the received request
+        if(found) WriteResponse(connection, route[1] == (byte)'j'); // Simulating writing the response after handling the received request
 
         return found;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static unsafe void WriteResponse(Connection connection)
+    private static void WriteResponse(Connection connection, bool json)
     {
-        // Write the response
-        var msg =
-            "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nHello, World!"u8;
-        
-        connection.Write(msg);
+        if (json)
+        {
+            var tail = connection.WriteTail;
+            connection.Write(s_headersJson);
+            var date = DateHelper.HeaderBytes;
+            connection.Write(date);
+            
+            var utf8JsonWriter = t_writer ??= new Utf8JsonWriter(connection, new JsonWriterOptions { SkipValidation = true });
+            utf8JsonWriter.Reset(connection);
+            JsonSerializer.Serialize(utf8JsonWriter, new JsonMessage { Message = _jsonBody }, SerializerContext.JsonMessage);
+            
+            var contentLength = (int)utf8JsonWriter.BytesCommitted;
+            unsafe
+            {
+                byte* dst = connection.WriteBuffer + tail + 33;
+                int tens = contentLength / 10;
+                int ones = contentLength - tens * 10;
+
+                dst[0] = (byte)('0' + tens);
+                dst[1] = (byte)('0' + ones);
+            }
+        }
+        else
+        {
+            var tail = connection.WriteTail;
+            connection.Write(s_headersPlainText);
+            var date = DateHelper.HeaderBytes;
+            connection.Write(date);
+            connection.Write(s_plainTextBody);
+            
+            var contentLength = s_plainTextBody.Length;
+            
+            unsafe
+            {
+                byte* dst = connection.WriteBuffer + tail + 33;
+                int tens = contentLength / 10;
+                int ones = contentLength - tens * 10;
+
+                dst[0] = (byte)('0' + tens);
+                dst[1] = (byte)('0' + ones);
+            }
+        }
     }
     
     private static int GetCurrentRingIndex(in int totalAdvanced, UnmanagedMemoryManager[] rings, out int currentRingAdvanced)
@@ -252,3 +375,9 @@ internal sealed class ConnectionHandler
         return total;
     }
 }
+
+public struct JsonMessage { public string Message { get; set; } }
+
+[JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Serialization | JsonSourceGenerationMode.Metadata)]
+[JsonSerializable(typeof(JsonMessage))]
+public partial class JsonContext : JsonSerializerContext { }
