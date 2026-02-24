@@ -117,4 +117,4 @@ await connection.FlushAsync();
 
 ## Real-World Example
 
-The TechEmpower benchmark handler in the zerg repository demonstrates these patterns in a production HTTP server. See [Building an HTTP Server](../http-server/) for a walkthrough.
+The TechEmpower benchmark handler in the zerg repository demonstrates these patterns in a production HTTP server.

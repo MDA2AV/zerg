@@ -7,18 +7,154 @@ zerg implements a classic **reactor pattern** with a split-architecture design: 
 
 ## Overview
 
-```
-Clients ──TCP──▶ Acceptor Thread (1 io_uring, multishot accept)
-                      │
-                      │ round-robin fd distribution
-                      ▼
-              ┌───────┼───────┐
-              ▼       ▼       ▼
-          Reactor 0  Reactor 1  ...  Reactor N
-          (io_uring) (io_uring)      (io_uring)
-          (buf_ring) (buf_ring)      (buf_ring)
-          (conn map) (conn map)      (conn map)
-```
+<div id="reactor-diagram" style="position:relative;width:100%;max-width:800px;margin:2rem auto;font-family:system-ui,sans-serif;user-select:none">
+<style>
+  #reactor-diagram *{box-sizing:border-box}
+  #reactor-diagram .zone{border-radius:12px;padding:20px;margin-bottom:16px;position:relative}
+  #reactor-diagram .zone-kernel{background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #2a3a5c}
+  #reactor-diagram .zone-user{background:linear-gradient(135deg,#0f1729,#131b2e);border:1px solid #1e2d4a}
+  #reactor-diagram .zone-label{position:absolute;top:10px;right:14px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#4a5e7a}
+  #reactor-diagram .node{border-radius:10px;padding:14px 18px;text-align:center;position:relative;transition:transform .2s,box-shadow .2s}
+  #reactor-diagram .node:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(59,130,246,.2)}
+  #reactor-diagram .node-client{background:linear-gradient(135deg,#1e3a5f,#1a2d4a);border:1px solid #2e5a8a;color:#7eb8f0}
+  #reactor-diagram .node-acceptor{background:linear-gradient(135deg,#2d1b4e,#1f1338);border:1px solid #5b3a8a;color:#c4a5f0}
+  #reactor-diagram .node-reactor{background:linear-gradient(135deg,#1b3a2e,#132a1f);border:1px solid #2e7a5a;color:#7ef0b8;flex:1;min-width:0}
+  #reactor-diagram .node-app{background:linear-gradient(135deg,#3a2a1b,#2a1f13);border:1px solid #8a6a2e;color:#f0d07e}
+  #reactor-diagram .node-title{font-weight:700;font-size:14px;margin-bottom:6px}
+  #reactor-diagram .node-sub{font-size:11px;opacity:.7;line-height:1.5}
+  #reactor-diagram .connector{display:flex;align-items:center;justify-content:center;padding:8px 0;position:relative}
+  #reactor-diagram .connector-line{width:2px;height:32px;background:linear-gradient(to bottom,transparent,#3b82f6,transparent)}
+  #reactor-diagram .connector-fan{display:flex;gap:12px;justify-content:center;align-items:flex-start;position:relative;padding-top:8px}
+  #reactor-diagram .connector-arrow{color:#3b82f6;font-size:13px;font-weight:700;animation:pulse-arrow 2s infinite}
+  #reactor-diagram .connector-arrow-rr{color:#8b5cf6;font-size:11px;font-weight:600}
+  #reactor-diagram .badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;margin:2px}
+  #reactor-diagram .badge-uring{background:rgba(139,92,246,.2);color:#a78bfa;border:1px solid rgba(139,92,246,.3)}
+  #reactor-diagram .badge-buf{background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.3)}
+  #reactor-diagram .badge-queue{background:rgba(16,185,129,.15);color:#34d399;border:1px solid rgba(16,185,129,.3)}
+  #reactor-diagram .badge-lock{background:rgba(245,158,11,.15);color:#fbbf24;border:1px solid rgba(245,158,11,.3)}
+  #reactor-diagram .flow-dot{width:6px;height:6px;border-radius:50%;background:#3b82f6;position:absolute;animation:flow-down 2s infinite}
+  #reactor-diagram .reactor-internals{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;justify-content:center}
+  #reactor-diagram .clients-grid{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
+  #reactor-diagram .client-dot{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#1d4ed8);border:2px solid #3b82f6;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#bfdbfe;transition:transform .2s}
+  #reactor-diagram .client-dot:hover{transform:scale(1.15)}
+  @keyframes pulse-arrow{0%,100%{opacity:.4}50%{opacity:1}}
+  @keyframes flow-down{0%{top:0;opacity:0}50%{opacity:1}100%{top:100%;opacity:0}}
+  @media(max-width:640px){
+    #reactor-diagram .connector-fan{flex-direction:column;align-items:center}
+    #reactor-diagram .node-reactor{width:100%}
+  }
+</style>
+
+<!-- Kernel Space -->
+<div class="zone zone-kernel">
+  <div class="zone-label">Kernel Space</div>
+  <div class="clients-grid">
+    <div class="client-dot">C1</div>
+    <div class="client-dot">C2</div>
+    <div class="client-dot">C3</div>
+    <div class="client-dot">C4</div>
+    <div class="client-dot">C5</div>
+    <div class="client-dot" style="opacity:.5">...</div>
+  </div>
+  <div style="text-align:center;margin-top:4px">
+    <span class="connector-arrow">TCP</span>
+    <span style="color:#4a5e7a;font-size:12px"> &darr; </span>
+  </div>
+  <div class="node node-client" style="max-width:320px;margin:8px auto 0">
+    <div class="node-title">Listening Socket</div>
+    <div class="node-sub">bind + listen &bull; backlog queue</div>
+  </div>
+</div>
+
+<!-- Connector -->
+<div class="connector"><div class="connector-line" style="position:relative"><div class="flow-dot"></div></div></div>
+
+<!-- User Space -->
+<div class="zone zone-user">
+  <div class="zone-label">User Space</div>
+
+  <!-- Acceptor -->
+  <div class="node node-acceptor" style="max-width:480px;margin:0 auto 16px">
+    <div class="node-title">Acceptor Thread</div>
+    <div class="node-sub">Single SQE &rarr; multishot accept &rarr; one CQE per connection</div>
+    <div style="margin-top:8px">
+      <span class="badge badge-uring">io_uring</span>
+      <span class="badge badge-lock">TCP_NODELAY</span>
+    </div>
+  </div>
+
+  <!-- Round Robin label -->
+  <div style="text-align:center;padding:4px 0">
+    <span class="connector-arrow-rr">round-robin fd distribution</span>
+    <div style="display:flex;justify-content:center;gap:60px;margin-top:6px">
+      <span class="connector-arrow">&darr;</span>
+      <span class="connector-arrow" style="animation-delay:.3s">&darr;</span>
+      <span class="connector-arrow" style="animation-delay:.6s">&darr;</span>
+    </div>
+    <div style="display:flex;justify-content:center;gap:30px;margin-top:2px">
+      <span class="badge badge-queue">ConcurrentQueue</span>
+      <span class="badge badge-queue">ConcurrentQueue</span>
+      <span class="badge badge-queue">ConcurrentQueue</span>
+    </div>
+  </div>
+
+  <!-- Reactors -->
+  <div class="connector-fan" style="margin-top:12px">
+    <div class="node node-reactor">
+      <div class="node-title">Reactor 0</div>
+      <div class="reactor-internals">
+        <span class="badge badge-uring">io_uring</span>
+        <span class="badge badge-buf">buf_ring</span>
+        <span class="badge badge-queue">SPSC ring</span>
+      </div>
+      <div class="reactor-internals">
+        <span class="badge badge-lock">conn_map</span>
+        <span class="badge badge-queue">flush_Q</span>
+      </div>
+      <div class="node-sub" style="margin-top:6px">multishot recv + send</div>
+    </div>
+    <div class="node node-reactor">
+      <div class="node-title">Reactor 1</div>
+      <div class="reactor-internals">
+        <span class="badge badge-uring">io_uring</span>
+        <span class="badge badge-buf">buf_ring</span>
+        <span class="badge badge-queue">SPSC ring</span>
+      </div>
+      <div class="reactor-internals">
+        <span class="badge badge-lock">conn_map</span>
+        <span class="badge badge-queue">flush_Q</span>
+      </div>
+      <div class="node-sub" style="margin-top:6px">multishot recv + send</div>
+    </div>
+    <div class="node node-reactor">
+      <div class="node-title">Reactor N</div>
+      <div class="reactor-internals">
+        <span class="badge badge-uring">io_uring</span>
+        <span class="badge badge-buf">buf_ring</span>
+        <span class="badge badge-queue">SPSC ring</span>
+      </div>
+      <div class="reactor-internals">
+        <span class="badge badge-lock">conn_map</span>
+        <span class="badge badge-queue">flush_Q</span>
+      </div>
+      <div class="node-sub" style="margin-top:6px">multishot recv + send</div>
+    </div>
+  </div>
+
+  <!-- Channel -->
+  <div class="connector"><div class="connector-line" style="position:relative"><div class="flow-dot" style="animation-delay:.5s"></div></div></div>
+  <div style="text-align:center">
+    <span class="badge badge-queue" style="font-size:12px;padding:4px 14px">Channel&lt;ConnectionItem&gt;</span>
+  </div>
+  <div class="connector"><div class="connector-line" style="position:relative"><div class="flow-dot" style="animation-delay:1s"></div></div></div>
+
+  <!-- Application -->
+  <div class="node node-app" style="max-width:480px;margin:0 auto">
+    <div class="node-title">Application Handlers</div>
+    <div class="node-sub">Engine.AcceptAsync() &rarr; ReadAsync &harr; Write + FlushAsync</div>
+  </div>
+</div>
+</div>
 
 Every thread in the system owns its own `io_uring` instance. There is no shared ring, and no lock contention on the I/O path.
 

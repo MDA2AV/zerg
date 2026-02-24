@@ -54,6 +54,6 @@ layout: hextra-home
   {{< hextra/feature-card
     title="Production Ready"
     subtitle="Includes a TechEmpower benchmark HTTP server, AOT-compatible, ships bundled native libraries for glibc and musl, and is available on NuGet."
-    link="docs/guides/http-server/"
+    link="docs/getting-started/installation/"
   >}}
 {{< /hextra/feature-grid >}}

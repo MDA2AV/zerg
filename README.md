@@ -8,6 +8,7 @@
 - **License:** MIT
 - **Repository:** https://github.com/MDA2AV/uRocket
 - **NuGet:** https://www.nuget.org/packages/zerg/
+- **Docs:** https://mda2av.github.io/zerg/
 - **Target Frameworks:** .NET 9.0, .NET 10.0
 
 ---
@@ -63,23 +64,62 @@ dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreferenc
 
 ## Architecture Overview
 
-zerg follows a **split architecture** with two thread pools:
+zerg follows a **split architecture** with one acceptor thread and N reactor threads, each owning its own `io_uring` instance:
 
 ```
-                    ┌────────────────┐
-    Clients ──────► │   Acceptor     │  (1 thread, 1 io_uring)
-                    │  multishot     │
-                    │  accept loop   │
-                    └───┬───┬───┬────┘
-                        │   │   │      round-robin distribution
-              ┌─────────┘   │   └─────────┐
-              ▼             ▼             ▼
-        ┌──────────┐  ┌──────────┐  ┌──────────┐
-        │ Reactor 0│  │ Reactor 1│  │ Reactor N│  (N threads, N io_urings)
-        │ io_uring │  │ io_uring │  │ io_uring │
-        │ buf_ring │  │ buf_ring │  │ buf_ring │
-        │ conn map │  │ conn map │  │ conn map │
-        └──────────┘  └──────────┘  └──────────┘
+                          ┌─────────────────────────────────────────────┐
+                          │              KERNEL SPACE                   │
+                          │                                             │
+    ┌────────┐     TCP    │     TCP/IP Stack ──► Listening Socket       │
+    │Client 1│────────────│──────────────────────────►                  │
+    │Client 2│────────────│──────────────────────────►                  │
+    │Client 3│────────────│──────────────────────────►                  │
+    │  ...   │────────────│──────────────────────────►                  │
+    └────────┘            └──────────────┬────────────────────────────  │
+                                         │                             │
+             ┌───────────────────────────┼─────────────────────────────┘
+             │                           │
+             │       USER SPACE          ▼
+             │       ┌───────────────────────────────────────┐
+             │       │           ACCEPTOR THREAD             │
+             │       │                                       │
+             │       │  io_uring ◄── multishot accept        │
+             │       │  (one SQE → CQE per new connection)   │
+             │       │                                       │
+             │       │  for each accepted fd:                │
+             │       │    setsockopt(fd, TCP_NODELAY)        │
+             │       │    enqueue to reactor[next++ % N]     │
+             │       └───────┬──────────┬──────────┬─────────┘
+             │               │          │          │
+             │           lock-free  lock-free  lock-free
+             │          ConcurrentQ ConcurrentQ ConcurrentQ
+             │               │          │          │
+             │               ▼          ▼          ▼
+             │       ┌───────────┐ ┌───────────┐ ┌───────────┐
+             │       │ REACTOR 0 │ │ REACTOR 1 │ │ REACTOR N │
+             │       │           │ │           │ │           │
+             │       │ io_uring  │ │ io_uring  │ │ io_uring  │
+             │       │ buf_ring  │ │ buf_ring  │ │ buf_ring  │
+             │       │ conn_map  │ │ conn_map  │ │ conn_map  │
+             │       │ flush_Q   │ │ flush_Q   │ │ flush_Q   │
+             │       │ return_Q  │ │ return_Q  │ │ return_Q  │
+             │       │           │ │           │ │           │
+             │       │ multishot │ │ multishot │ │ multishot │
+             │       │ recv+send │ │ recv+send │ │ recv+send │
+             │       └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+             │             │             │             │
+             │             └──────┬──────┘─────────────┘
+             │                    ▼
+             │       Channel<ConnectionItem>
+             │                    │
+             │                    ▼
+             │          Engine.AcceptAsync()
+             │                    │
+             │                    ▼
+             │          Application Handlers
+             │       (ReadAsync ◄──► Write + FlushAsync)
+             │
+             └─────────────────────────────────────────────────────────
 ```
 
 ### Acceptor Thread
@@ -90,7 +130,7 @@ zerg follows a **split architecture** with two thread pools:
 Each reactor owns:
 - Its own `io_uring` instance for recv/send operations
 - A pre-allocated **buffer ring** for zero-copy receives
-- A dictionary of active connections (fd -> Connection)
+- A dictionary of active connections (fd → Connection)
 - Lock-free MPSC queues for cross-thread coordination
 
 ### Key Design Principles
@@ -257,6 +297,42 @@ zerg provides both high-level and low-level read APIs. The core contract is:
 2. After processing data, **return buffers** to the kernel via `ReturnRing()`
 3. Call `ResetRead()` to signal readiness for the next read
 
+```
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                    READ LIFECYCLE                                │
+    │                                                                  │
+    │   await ReadAsync()                                              │
+    │         │                                                        │
+    │         ▼                                                        │
+    │   ┌─────────────────┐     ┌─────────────────────────────────┐   │
+    │   │  ReadResult      │     │  Option A: High-Level API       │   │
+    │   │  .IsClosed       │────►│  GetAllSnapshotRingsAs          │   │
+    │   │  .TailSnapshot   │     │  UnmanagedMemory(result)        │   │
+    │   └─────────────────┘     │  .ToReadOnlySequence()          │   │
+    │                            └──────────────┬──────────────────┘   │
+    │   ┌─────────────────┐                     │                      │
+    │   │  Option B:       │                     │                      │
+    │   │  Low-Level API   │                     │                      │
+    │   │  TryGetRing()    │                     │                      │
+    │   │  ring.AsSpan()   │                     │                      │
+    │   └────────┬────────┘                     │                      │
+    │            │                               │                      │
+    │            ▼                               ▼                      │
+    │   ┌──────────────────────────────────────────────┐               │
+    │   │  Return buffers to kernel                     │               │
+    │   │  rings.ReturnRingBuffers(connection.Reactor)  │               │
+    │   │  ── or ──                                     │               │
+    │   │  connection.ReturnRing(ring.BufferId)         │               │
+    │   └──────────────────────┬───────────────────────┘               │
+    │                          │                                        │
+    │                          ▼                                        │
+    │               connection.ResetRead()                             │
+    │                          │                                        │
+    │                          ▼                                        │
+    │                await ReadAsync()  ← loop                         │
+    └──────────────────────────────────────────────────────────────────┘
+```
+
 ### High-Level API
 
 ```csharp
@@ -315,6 +391,31 @@ connection.ResetRead();
 
 ## Writing Data
 
+```
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                    WRITE LIFECYCLE                               │
+    │                                                                  │
+    │   connection.Write(data)          connection.GetSpan(size)       │
+    │   ── or ──                        int written = Format(span);   │
+    │   connection.Write(span)          connection.Advance(written);  │
+    │         │                                   │                    │
+    │         └──────────────┬────────────────────┘                    │
+    │                        ▼                                         │
+    │              Staged in write slab                                │
+    │              (NativeMemory, no GC)                               │
+    │                        │                                         │
+    │                        ▼                                         │
+    │            await connection.FlushAsync()                         │
+    │                        │                                         │
+    │                        ▼                                         │
+    │              Reactor submits send SQE                            │
+    │              (handles partial sends)                             │
+    │                        │                                         │
+    │                        ▼                                         │
+    │              Kernel delivers to client                           │
+    └──────────────────────────────────────────────────────────────────┘
+```
+
 ### Simple Write (copies data to internal buffer)
 
 ```csharp
@@ -367,10 +468,38 @@ Examples/ZeroAlloc/Basic/Rings_as_ReadOnlySequence.cs
 
 `io_uring` is a Linux kernel interface for asynchronous I/O based on shared-memory ring buffers:
 
-- **Submission Queue (SQ):** Application writes I/O request descriptors here
-- **Completion Queue (CQ):** Kernel writes completion results here
-- **Shared Memory:** Both queues live in kernel/user shared memory - most operations require **no syscalls**
-- **Batching:** Submit many requests, get many completions with one syscall
+```
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  USERSPACE                                                       │
+    │                                                                  │
+    │   Your Code                            Your Handler              │
+    │   ┌────────────────┐                   ┌────────────────┐       │
+    │   │ prep_recv()    │                   │ process CQEs   │       │
+    │   │ prep_send()    │                   │ dispatch by     │       │
+    │   │ prep_accept()  │                   │ user_data tag   │       │
+    │   └───────┬────────┘                   └───────▲────────┘       │
+    │           │ write SQEs                         │ read CQEs      │
+    │           ▼                                    │                 │
+    │   ┌──────────────────────────────────────────────────────┐      │
+    │   │              SHARED MEMORY (mmap'd)                   │      │
+    │   │                                                       │      │
+    │   │  ┌─────────────────────┐   ┌──────────────────────┐  │      │
+    │   │  │  Submission Queue   │   │  Completion Queue     │  │      │
+    │   │  │  [SQE][SQE][SQE].. │   │  [CQE][CQE]..        │  │      │
+    │   │  └─────────────────────┘   └──────────────────────┘  │      │
+    │   └──────────────────────────────────────────────────────┘      │
+    │           │ kernel reads SQ            ▲ kernel writes CQ       │
+    ├───────────┼────────────────────────────┼─────────────────────────┤
+    │  KERNEL   ▼                            │                         │
+    │       ┌──────────────────────────────────┐                      │
+    │       │        I/O Processing            │                      │
+    │       │     accept / recv / send          │                      │
+    │       └──────────────────────────────────┘                      │
+    └──────────────────────────────────────────────────────────────────┘
+
+    SQE: [opcode][fd][buf/len][user_data][flags]    ← what to do
+    CQE: [user_data][res][flags]                    ← what happened
+```
 
 ### Features Used by zerg
 
@@ -420,42 +549,64 @@ Examples/ZeroAlloc/Basic/Rings_as_ReadOnlySequence.cs
 ## Project Structure
 
 ```
-zerg/
-├── zerg/                             # Core library (NuGet package)
-│   ├── ABI/                          # Linux system ABI bindings
-│   │   ├── CPU.cs                    # CPU affinity
-│   │   ├── Kernel.cs                 # Kernel-level utilities
-│   │   ├── LinuxSocket.cs            # Socket syscall wrappers
-│   │   └── URing.cs                  # io_uring P/Invoke bindings
-│   ├── Connection/                   # Per-connection state and APIs
-│   │   ├── Connection.Read.cs        # Read state, IValueTaskSource, async signaling
-│   │   ├── Connection.Read.HighLevelApi.cs  # Batch read APIs
-│   │   ├── Connection.Read.LowLevelApi.cs   # Low-level streaming APIs
-│   │   ├── Connection.Write.cs       # Write buffer, IBufferWriter, Flush
-│   │   └── ConnectionStream.cs       # BCL Stream adapter
-│   ├── Engine/                       # Reactor pattern implementation
-│   │   ├── Engine.cs                 # Main coordinator
-│   │   ├── Engine.Config.cs          # Configuration and thread setup
-│   │   ├── Engine.Acceptor.cs        # Accept event loop
-│   │   ├── Engine.Reactor.cs         # Reactor event loop
-│   │   └── Configs/                  # EngineOptions, ReactorConfig, AcceptorConfig
-│   ├── Utils/                        # Data structures and helpers
-│   │   ├── RingItem.cs               # Received buffer metadata
-│   │   ├── ReadResult.cs             # Read snapshot result
-│   │   ├── UnmanagedMemoryManager/   # Wraps unmanaged memory as MemoryManager<byte>
-│   │   ├── SingleProducerSingleConsumer/  # SPSC ring buffer
-│   │   └── MultiProducerSingleConsumer/   # Lock-free MPSC queues
-│   └── native/                       # Bundled native libraries
-│       ├── linux-x64/liburingshim.so
-│       └── linux-musl-x64/liburingshim.so
-│
-├── Examples/                         # Example applications
-│   ├── Program.cs                    # Entry point with engine setup
-│   └── ZeroAlloc/Basic/              # Simple read/write patterns
-│
-├── Playground/                       # Development sandbox
-├── TechEmpower/BenchmarkApp/         # HTTP benchmark server
-└── Docs/                             # Hextra documentation site
+zerg/                                         # Core library (NuGet package)
+├── zerg.csproj
+├── ABI/                                      # Linux system ABI bindings
+│   ├── CPU.cs                                # CPU affinity (sched_setaffinity)
+│   ├── Kernel.cs                             # Kernel-level utilities
+│   ├── LinuxSocket.cs                        # Socket syscall wrappers
+│   └── URing.cs                              # io_uring P/Invoke bindings (liburingshim)
+├── Connection/                               # Per-connection state and APIs
+│   ├── Connection.cs                         # Core connection class
+│   ├── Connection.Read.cs                    # Read state, IValueTaskSource, async signaling
+│   ├── Connection.Read.HighLevelApi.cs       # Batch read APIs (GetAllSnapshotRings, etc.)
+│   ├── Connection.Read.LowLevelApi.cs        # Low-level streaming APIs (TryGetRing)
+│   ├── Connection.Write.cs                   # Write buffer state
+│   ├── Connection.Write.HighLevelApi.cs      # Write + FlushAsync
+│   ├── Connection.Write.IBufferWriter.cs     # IBufferWriter<byte> implementation
+│   ├── Connection.Write.LowLevelApi.cs       # Low-level write APIs
+│   ├── ConnectionStream.cs                   # BCL Stream adapter
+│   └── ConnectionPipeReader.cs               # PipeReader adapter
+├── Engine/                                   # Reactor pattern implementation
+│   ├── Engine.cs                             # Main coordinator
+│   ├── Engine.Config.cs                      # Configuration and thread setup
+│   ├── Engine.Acceptor.cs                    # Accept event loop
+│   ├── Engine.Acceptor.Listener.cs           # Listener socket setup
+│   ├── Engine.Reactor.cs                     # Reactor state and setup
+│   ├── Engine.Reactor.Handle.cs              # CQE dispatch (recv/send/cancel)
+│   ├── Engine.Reactor.HandleSubmitAndWaitCqe.cs       # Two-call submit pattern
+│   ├── Engine.Reactor.HandleSubmitAndWaitSingleCall.cs # Single-call submit pattern
+│   └── Configs/
+│       ├── EngineOptions.cs                  # Top-level engine configuration
+│       ├── ReactorConfig.cs                  # Per-reactor configuration
+│       ├── AcceptorConfig.cs                 # Acceptor configuration
+│       └── IPVersion.cs                      # IPv4 / IPv6 / DualStack enum
+├── Utils/                                    # Data structures and helpers
+│   ├── RingItem.cs                           # Received buffer metadata (ptr, len, buf_id)
+│   ├── ReadResult.cs                         # Read snapshot result
+│   ├── RingSegment.cs                        # ReadOnlySequence segment node
+│   ├── WriteItem.cs                          # Write buffer descriptor
+│   ├── PinnedByteSequence.cs                 # Pinned byte[] as ReadOnlySequence
+│   ├── Memory/
+│   │   └── MemoryExtensions.cs               # Memory helper extensions
+│   ├── ReadOnlySpan/
+│   │   └── ReadOnlySpanExtensions.cs         # Span parsing helpers
+│   ├── UnmanagedMemoryManager/
+│   │   ├── UnmanagedMemoryManager.cs         # Wraps unmanaged ptr as MemoryManager<byte>
+│   │   └── UnmanagedMemoryManagerExtensions.cs  # Batch ring → sequence helpers
+│   ├── SingleProducerSingleConsumer/
+│   │   └── SpscRecvRing.cs                   # Lock-free SPSC ring buffer
+│   └── MultiProducerSingleConsumer/
+│       ├── MpscIntQueue.cs                   # Lock-free MPSC int queue
+│       ├── MpscUShortQueue.cs                # Lock-free MPSC ushort queue (buffer returns)
+│       ├── MpscRecvRing.cs                   # MPSC recv ring (reactor → connection)
+│       └── MpscWriteItem.cs                  # MPSC write item queue
+└── native/                                   # Bundled native libraries
+    ├── uringshim.c                           # C shim source (wraps liburing)
+    ├── uringshim.h                           # C shim header
+    ├── liburingshim.so                       # Compiled shared library
+    ├── linux-x64/liburingshim.so             # NuGet runtime: glibc
+    └── linux-musl-x64/liburingshim.so        # NuGet runtime: musl (Alpine)
 ```
 
 ### Dependencies
@@ -470,21 +621,42 @@ zerg/
 ## Threading Model
 
 ```
-┌─────────────┐
-│  Acceptor   │  Thread 1: Accepts connections via io_uring
-│  Thread     │  Distributes FDs round-robin to reactors
-└──────┬──────┘
-       │ ConcurrentQueue<int> per reactor
-       ▼
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│  Reactor 0  │  │  Reactor 1  │  │  Reactor N  │  N threads: recv/send via io_uring
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                │                │
-       ▼                ▼                ▼
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│  Handler    │  │  Handler    │  │  Handler    │  User async Tasks
-│  Tasks      │  │  Tasks      │  │  Tasks      │  (ReadAsync/Write/FlushAsync)
-└─────────────┘  └─────────────┘  └─────────────┘
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                                                                  │
+    │   ACCEPTOR THREAD                                                │
+    │   ┌─────────────────────────────────────────────────────┐       │
+    │   │  io_uring: multishot accept                          │       │
+    │   │  Accepts connections, sets TCP_NODELAY               │       │
+    │   │  Distributes FDs round-robin to reactors             │       │
+    │   └──────────┬──────────────┬──────────────┬────────────┘       │
+    │              │              │              │                      │
+    │        ConcurrentQ    ConcurrentQ    ConcurrentQ                │
+    │        (lock-free)    (lock-free)    (lock-free)                 │
+    │              │              │              │                      │
+    │              ▼              ▼              ▼                      │
+    │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
+    │   │  REACTOR 0   │  │  REACTOR 1   │  │  REACTOR N   │         │
+    │   │              │  │              │  │              │         │
+    │   │  Event Loop: │  │  Event Loop: │  │  Event Loop: │         │
+    │   │  1. Drain     │  │  1. Drain     │  │  1. Drain     │         │
+    │   │     new FDs   │  │     new FDs   │  │     new FDs   │         │
+    │   │  2. Drain     │  │  2. Drain     │  │  2. Drain     │         │
+    │   │     buf rets  │  │     buf rets  │  │     buf rets  │         │
+    │   │  3. Drain     │  │  3. Drain     │  │  3. Drain     │         │
+    │   │     flushes   │  │     flushes   │  │     flushes   │         │
+    │   │  4. Process   │  │  4. Process   │  │  4. Process   │         │
+    │   │     CQEs      │  │     CQEs      │  │     CQEs      │         │
+    │   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘         │
+    │          │                 │                 │                    │
+    │          ▼                 ▼                 ▼                    │
+    │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
+    │   │  Handler     │  │  Handler     │  │  Handler     │         │
+    │   │  Tasks       │  │  Tasks       │  │  Tasks       │         │
+    │   │  (async/     │  │  (async/     │  │  (async/     │         │
+    │   │   await)     │  │   await)     │  │   await)     │         │
+    │   └──────────────┘  └──────────────┘  └──────────────┘         │
+    │                                                                  │
+    └──────────────────────────────────────────────────────────────────┘
 ```
 
 **Thread safety guarantees:**
