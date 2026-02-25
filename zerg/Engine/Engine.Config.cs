@@ -132,7 +132,7 @@ public sealed partial class Engine
                     try
                     {
                         Reactors[wi].InitRing();
-                        Reactors[wi].HandleSubmitAndWaitSingleCall();
+                        Reactors[wi].Handle();
                     }
                     catch (Exception ex)
                     {

@@ -1,12 +1,12 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>zerg – Documentation</title>
-    <link>https://mda2av.github.io/zerg/docs/</link>
+    <link>http://localhost:1313/zerg/docs/</link>
     <description>Recent content in Documentation on zerg</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     
-	  <atom:link href="https://mda2av.github.io/zerg/docs/index.xml" rel="self" type="application/rss+xml" />
+	  <atom:link href="http://localhost:1313/zerg/docs/index.xml" rel="self" type="application/rss+xml" />
     
     
       
@@ -16,10 +16,10 @@
     
     <item>
       <title>Engine</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/engine/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/engine/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/engine/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/engine/</guid>
       <description>
         
         
@@ -314,10 +314,10 @@
     
     <item>
       <title>Installation</title>
-      <link>https://mda2av.github.io/zerg/docs/getting-started/installation/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/installation/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/getting-started/installation/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/installation/</guid>
       <description>
         
         
@@ -460,10 +460,10 @@
     
     <item>
       <title>Reactor Pattern</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/reactor-pattern/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/reactor-pattern/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/reactor-pattern/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/reactor-pattern/</guid>
       <description>
         
         
@@ -741,10 +741,10 @@
     
     <item>
       <title>SPSC Recv Ring</title>
-      <link>https://mda2av.github.io/zerg/docs/internals/spsc-ring/</link>
+      <link>http://localhost:1313/zerg/docs/internals/spsc-ring/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/internals/spsc-ring/</guid>
+      <guid>http://localhost:1313/zerg/docs/internals/spsc-ring/</guid>
       <description>
         
         
@@ -968,10 +968,10 @@
     
     <item>
       <title>Zero-Allocation Patterns</title>
-      <link>https://mda2av.github.io/zerg/docs/guides/zero-allocation/</link>
+      <link>http://localhost:1313/zerg/docs/guides/zero-allocation/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/guides/zero-allocation/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/zero-allocation/</guid>
       <description>
         
         
@@ -1171,10 +1171,10 @@
     
     <item>
       <title>Connection: Read</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/connection-read/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/connection-read/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/connection-read/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/connection-read/</guid>
       <description>
         
         
@@ -1570,10 +1570,10 @@
     
     <item>
       <title>io_uring</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/io-uring/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/io-uring/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/io-uring/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/io-uring/</guid>
       <description>
         
         
@@ -2366,10 +2366,10 @@ ffGoTo(0);
     
     <item>
       <title>MPSC Queues</title>
-      <link>https://mda2av.github.io/zerg/docs/internals/mpsc-queues/</link>
+      <link>http://localhost:1313/zerg/docs/internals/mpsc-queues/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/internals/mpsc-queues/</guid>
+      <guid>http://localhost:1313/zerg/docs/internals/mpsc-queues/</guid>
       <description>
         
         
@@ -2643,10 +2643,10 @@ Consumer:
     
     <item>
       <title>Quick Start</title>
-      <link>https://mda2av.github.io/zerg/docs/getting-started/quick-start/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/quick-start/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/getting-started/quick-start/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/quick-start/</guid>
       <description>
         
         
@@ -2786,10 +2786,10 @@ Consumer:
     
     <item>
       <title>Buffer Management</title>
-      <link>https://mda2av.github.io/zerg/docs/guides/buffer-management/</link>
+      <link>http://localhost:1313/zerg/docs/guides/buffer-management/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/guides/buffer-management/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/buffer-management/</guid>
       <description>
         
         
@@ -3054,10 +3054,10 @@ Per-Connection:
     
     <item>
       <title>Buffer Rings</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/buffer-rings/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/buffer-rings/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/buffer-rings/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/buffer-rings/</guid>
       <description>
         
         
@@ -3261,10 +3261,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Configuration</title>
-      <link>https://mda2av.github.io/zerg/docs/getting-started/configuration/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/configuration/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/getting-started/configuration/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/configuration/</guid>
       <description>
         
         
@@ -3621,10 +3621,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Connection: Write</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/connection-write/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/connection-write/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/connection-write/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/connection-write/</guid>
       <description>
         
         
@@ -3915,10 +3915,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Native Interop</title>
-      <link>https://mda2av.github.io/zerg/docs/internals/native-interop/</link>
+      <link>http://localhost:1313/zerg/docs/internals/native-interop/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/internals/native-interop/</guid>
+      <guid>http://localhost:1313/zerg/docs/internals/native-interop/</guid>
       <description>
         
         
@@ -4328,10 +4328,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Connection Lifecycle</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/connection-lifecycle/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/connection-lifecycle/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/connection-lifecycle/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/connection-lifecycle/</guid>
       <description>
         
         
@@ -4492,10 +4492,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>ConnectionStream</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/connection-stream/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/connection-stream/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/connection-stream/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/connection-stream/</guid>
       <description>
         
         
@@ -4765,10 +4765,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Memory Management</title>
-      <link>https://mda2av.github.io/zerg/docs/internals/memory-management/</link>
+      <link>http://localhost:1313/zerg/docs/internals/memory-management/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/internals/memory-management/</guid>
+      <guid>http://localhost:1313/zerg/docs/internals/memory-management/</guid>
       <description>
         
         
@@ -5128,10 +5128,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Performance Tuning</title>
-      <link>https://mda2av.github.io/zerg/docs/guides/performance-tuning/</link>
+      <link>http://localhost:1313/zerg/docs/guides/performance-tuning/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/guides/performance-tuning/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/performance-tuning/</guid>
       <description>
         
         
@@ -5478,10 +5478,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Configuration Reference</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/configuration/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/configuration/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/configuration/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/configuration/</guid>
       <description>
         
         
@@ -5900,10 +5900,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Threading Model</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/threading-model/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/threading-model/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/threading-model/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/threading-model/</guid>
       <description>
         
         
