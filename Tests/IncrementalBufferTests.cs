@@ -256,17 +256,19 @@ public class IncrementalBufferTests
     public async Task Incremental_DetectBufferReuse_BestEffort()
     {
         // 16 KB random payload split into ~1000 fragments (~17 bytes each)
+        // with 1ms delay between fragments to prevent TCP coalescing
         const int payloadSize = 16 * 1024;
         const int fragmentCount = 1000;
+        const int delayMs = 1;
         var fullPayload = new byte[payloadSize];
         Random.Shared.NextBytes(fullPayload);
         int fragmentSize = (payloadSize + fragmentCount - 1) / fragmentCount;
 
         // Run with incremental disabled first, then enabled, to compare
         var disabledConfig = new ReactorConfig(IncrementalBufferConsumption: false);
-        var (disabledRings, disabledConsecutive) = await RunFragmentedSend(fullPayload, fragmentSize, disabledConfig);
+        var (disabledRings, disabledConsecutive) = await RunFragmentedSend(fullPayload, fragmentSize, delayMs, disabledConfig);
 
-        var (enabledRings, enabledConsecutive) = await RunFragmentedSend(fullPayload, fragmentSize, IncrementalConfig);
+        var (enabledRings, enabledConsecutive) = await RunFragmentedSend(fullPayload, fragmentSize, delayMs, IncrementalConfig);
 
         // Log comparison
         Console.WriteLine(
@@ -276,10 +278,18 @@ public class IncrementalBufferTests
             $"  DISABLED: rings={disabledRings} consecutiveSameBid={disabledConsecutive}");
         Console.WriteLine(
             $"  ENABLED:  rings={enabledRings} consecutiveSameBid={enabledConsecutive}");
+
+        // With incremental enabled, the kernel should pack multiple recvs into the
+        // same buffer, producing consecutive CQEs with the same buffer ID.
+        Assert.True(enabledConsecutive > disabledConsecutive,
+            $"Expected more consecutive same-bid CQEs with incremental enabled ({enabledConsecutive}) " +
+            $"than disabled ({disabledConsecutive})");
+        Assert.True(enabledConsecutive > 0,
+            "Expected at least some consecutive same-bid CQEs with incremental enabled");
     }
 
     private static async Task<(int Rings, int ConsecutiveSameBid)> RunFragmentedSend(
-        byte[] fullPayload, int fragmentSize, ReactorConfig config)
+        byte[] fullPayload, int fragmentSize, int delayMs, ReactorConfig config)
     {
         var statsReceived = new TaskCompletionSource<(byte[] Data, int TotalRings, int ConsecutiveSameBid)>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -335,6 +345,8 @@ public class IncrementalBufferTests
             int len = Math.Min(fragmentSize, fullPayload.Length - offset);
             await stream.WriteAsync(fullPayload.AsMemory(offset, len));
             await stream.FlushAsync();
+            if (delayMs > 0)
+                await Task.Delay(delayMs);
         }
 
         // Wait for handler stats

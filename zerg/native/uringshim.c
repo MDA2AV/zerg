@@ -8,11 +8,15 @@
 #include <stdio.h>
 #include <unistd.h>         // syscall()
 #include <sys/syscall.h>    // __NR_io_uring_enter
-#include <sys/mman.h>       // mmap, munmap
 #include <liburing.h>
 
-// Build:
+// Build (using system liburing):
 //   gcc -O2 -fPIC -shared -o liburingshim.so uringshim.c -luring
+//
+// Build (using a local liburing, e.g. 2.8 from source):
+//   gcc -O2 -fPIC -shared -I/path/to/liburing/src/include \
+//       -o liburingshim.so uringshim.c \
+//       -L/path/to/liburing/src -luring -Wl,-rpath,'$ORIGIN'
 //
 // Purpose
 // -------
@@ -27,7 +31,16 @@
 //
 // Kernel/liburing assumptions
 // ---------------------------
-// This assumes a recent kernel + liburing for:
+// Requires liburing >= 2.8 for:
+// - IOU_PBUF_RING_INC support in io_uring_setup_buf_ring() (incremental buffer consumption)
+//   liburing <= 2.5 silently drops the flags parameter (the io_uring_buf_reg.flags field
+//   was treated as padding and never set). liburing 2.9 added the fix:
+//   io_uring_register_buf_ring() now ORs the flags into reg.flags before the syscall.
+//
+// The pre-built liburingshim.so in native/linux-x64/ statically links liburing 2.9.
+// If rebuilding from source, use liburing >= 2.8 or IOU_PBUF_RING_INC will be silently ignored.
+//
+// This also assumes a recent kernel + liburing for:
 // - io_uring_prep_multishot_accept()
 // - io_uring_prep_recv_multishot() + IOSQE_BUFFER_SELECT
 // - io_uring_setup_buf_ring() / io_uring_free_buf_ring()
@@ -341,43 +354,7 @@ struct io_uring_buf_ring* shim_setup_buf_ring(struct io_uring* ring,
                                               unsigned flags,
                                               int* ret_out)
 {
-    /*
-     * liburing <= 2.5 ignores the flags parameter and zeros the
-     * io_uring_buf_reg.flags field (treated as "pad").  This means
-     * IOU_PBUF_RING_INC (kernel 6.12+) never reaches the kernel.
-     *
-     * Work-around: when the caller passes non-zero flags, do the
-     * mmap + register manually so we can set reg.flags ourselves.
-     */
-    if (flags == 0)
-        return io_uring_setup_buf_ring(ring, entries, (int)bgid, 0, ret_out);
-
-    /* mmap the ring memory (same as liburing does internally) */
-    size_t ring_size = (size_t)entries * sizeof(struct io_uring_buf);
-    void *ptr = mmap(NULL, ring_size,
-                     PROT_READ | PROT_WRITE,
-                     MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    if (ptr == MAP_FAILED) {
-        *ret_out = -errno;
-        return NULL;
-    }
-
-    /* Fill the registration struct with flags set */
-    struct io_uring_buf_reg reg = {
-        .ring_addr    = (unsigned long)ptr,
-        .ring_entries = entries,
-        .bgid         = (__u16)bgid,
-        .flags        = (__u16)flags,
-    };
-
-    /* Register via the syscall (bypass liburing's register_buf_ring) */
-    *ret_out = io_uring_register_buf_ring(ring, &reg, 0);
-    if (*ret_out) {
-        munmap(ptr, ring_size);
-        return NULL;
-    }
-
-    return (struct io_uring_buf_ring *)ptr;
+    return io_uring_setup_buf_ring(ring, entries, (int)bgid, flags, ret_out);
 }
 
 /**

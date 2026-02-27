@@ -719,7 +719,9 @@ zerg/                                         # Core library (NuGet package)
 |---|---|---|
 | `Microsoft.Extensions.ObjectPool` | 10.0.2 | Connection object pooling |
 | `System.IO.Pipelines` | 9.0.4 | `PipeReader` adapter (`ConnectionPipeReader`) |
-| `liburingshim.so` | bundled | C shim bridging P/Invoke to liburing |
+| `liburingshim.so` | bundled (liburing 2.9) | C shim bridging P/Invoke to liburing |
+
+> **Note:** The bundled `liburingshim.so` statically links liburing 2.9. This version is required for `IOU_PBUF_RING_INC` (incremental buffer consumption) — liburing <= 2.5 silently drops the buffer ring flags. If rebuilding the shim from source, use liburing >= 2.8.
 
 ---
 

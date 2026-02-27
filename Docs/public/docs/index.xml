@@ -1,12 +1,12 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>zerg – Documentation</title>
-    <link>https://mda2av.github.io/zerg/docs/</link>
+    <link>http://localhost:1313/zerg/docs/</link>
     <description>Recent content in Documentation on zerg</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     
-	  <atom:link href="https://mda2av.github.io/zerg/docs/index.xml" rel="self" type="application/rss+xml" />
+	  <atom:link href="http://localhost:1313/zerg/docs/index.xml" rel="self" type="application/rss+xml" />
     
     
       
@@ -16,10 +16,10 @@
     
     <item>
       <title>Engine</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/engine/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/engine/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/engine/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/engine/</guid>
       <description>
         
         
@@ -314,10 +314,10 @@
     
     <item>
       <title>Installation</title>
-      <link>https://mda2av.github.io/zerg/docs/getting-started/installation/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/installation/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/getting-started/installation/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/installation/</guid>
       <description>
         
         
@@ -454,10 +454,10 @@
     
     <item>
       <title>Reactor Pattern</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/reactor-pattern/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/reactor-pattern/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/reactor-pattern/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/reactor-pattern/</guid>
       <description>
         
         
@@ -735,10 +735,10 @@
     
     <item>
       <title>SPSC Recv Ring</title>
-      <link>https://mda2av.github.io/zerg/docs/internals/spsc-ring/</link>
+      <link>http://localhost:1313/zerg/docs/internals/spsc-ring/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/internals/spsc-ring/</guid>
+      <guid>http://localhost:1313/zerg/docs/internals/spsc-ring/</guid>
       <description>
         
         
@@ -962,10 +962,10 @@
     
     <item>
       <title>Zero-Allocation Patterns</title>
-      <link>https://mda2av.github.io/zerg/docs/guides/zero-allocation/</link>
+      <link>http://localhost:1313/zerg/docs/guides/zero-allocation/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/guides/zero-allocation/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/zero-allocation/</guid>
       <description>
         
         
@@ -1168,10 +1168,10 @@
     
     <item>
       <title>Connection: Read</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/connection-read/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/connection-read/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/connection-read/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/connection-read/</guid>
       <description>
         
         
@@ -1567,10 +1567,10 @@
     
     <item>
       <title>io_uring</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/io-uring/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/io-uring/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/io-uring/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/io-uring/</guid>
       <description>
         
         
@@ -2363,10 +2363,10 @@ ffGoTo(0);
     
     <item>
       <title>MPSC Queues</title>
-      <link>https://mda2av.github.io/zerg/docs/internals/mpsc-queues/</link>
+      <link>http://localhost:1313/zerg/docs/internals/mpsc-queues/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/internals/mpsc-queues/</guid>
+      <guid>http://localhost:1313/zerg/docs/internals/mpsc-queues/</guid>
       <description>
         
         
@@ -2640,10 +2640,10 @@ Consumer:
     
     <item>
       <title>Quick Start</title>
-      <link>https://mda2av.github.io/zerg/docs/getting-started/quick-start/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/quick-start/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/getting-started/quick-start/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/quick-start/</guid>
       <description>
         
         
@@ -2783,10 +2783,10 @@ Consumer:
     
     <item>
       <title>Buffer Management</title>
-      <link>https://mda2av.github.io/zerg/docs/guides/buffer-management/</link>
+      <link>http://localhost:1313/zerg/docs/guides/buffer-management/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/guides/buffer-management/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/buffer-management/</guid>
       <description>
         
         
@@ -3058,10 +3058,10 @@ Per-Connection:
     
     <item>
       <title>Buffer Rings</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/buffer-rings/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/buffer-rings/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/buffer-rings/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/buffer-rings/</guid>
       <description>
         
         
@@ -3324,10 +3324,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Configuration</title>
-      <link>https://mda2av.github.io/zerg/docs/getting-started/configuration/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/configuration/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/getting-started/configuration/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/configuration/</guid>
       <description>
         
         
@@ -3691,10 +3691,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Connection: Write</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/connection-write/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/connection-write/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/connection-write/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/connection-write/</guid>
       <description>
         
         
@@ -3985,10 +3985,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Native Interop</title>
-      <link>https://mda2av.github.io/zerg/docs/internals/native-interop/</link>
+      <link>http://localhost:1313/zerg/docs/internals/native-interop/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/internals/native-interop/</guid>
+      <guid>http://localhost:1313/zerg/docs/internals/native-interop/</guid>
       <description>
         
         
@@ -4011,6 +4011,7 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
 &lt;li&gt;Provides a flat C ABI that P/Invoke can call (liburing uses inline functions and macros)&lt;/li&gt;
 &lt;li&gt;Bundles liburing statically so users don&amp;rsquo;t need to install it&lt;/li&gt;
 &lt;/ol&gt;
+&lt;p&gt;The pre-built &lt;code&gt;liburingshim.so&lt;/code&gt; ships with &lt;strong&gt;liburing 2.9&lt;/strong&gt; statically linked. This version is required for &lt;code&gt;IOU_PBUF_RING_INC&lt;/code&gt; (incremental buffer consumption) — liburing &amp;lt;= 2.5 silently drops the buffer ring flags parameter.&lt;/p&gt;
 &lt;h2&gt;Bundled Native Libraries&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;bundled-native-libraries&#34;&gt;&lt;/span&gt;
     &lt;a href=&#34;#bundled-native-libraries&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The NuGet package includes pre-built shim libraries:&lt;/p&gt;
 &lt;table&gt;
@@ -4032,6 +4033,42 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
   &lt;/tbody&gt;
 &lt;/table&gt;
 &lt;p&gt;These are automatically copied to the output directory by MSBuild.&lt;/p&gt;
+&lt;h2&gt;Building the Shim from Source&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;building-the-shim-from-source&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#building-the-shim-from-source&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;If you need to rebuild &lt;code&gt;liburingshim.so&lt;/code&gt;, you must link against &lt;strong&gt;liburing &amp;gt;= 2.8&lt;/strong&gt;. Earlier versions (e.g., 2.5 shipped with Ubuntu 24.04) silently drop the &lt;code&gt;IOU_PBUF_RING_INC&lt;/code&gt; flag, breaking incremental buffer consumption.&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;c1&#34;&gt;# Build liburing 2.9 from source&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;git clone --depth &lt;span class=&#34;m&#34;&gt;1&lt;/span&gt; --branch liburing-2.9 https://github.com/axboe/liburing.git
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nb&#34;&gt;cd&lt;/span&gt; liburing &lt;span class=&#34;o&#34;&gt;&amp;amp;&amp;amp;&lt;/span&gt; ./configure &lt;span class=&#34;o&#34;&gt;&amp;amp;&amp;amp;&lt;/span&gt; make -j&lt;span class=&#34;k&#34;&gt;$(&lt;/span&gt;nproc&lt;span class=&#34;k&#34;&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;c1&#34;&gt;# Build the shim against the local liburing&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;gcc -O2 -fPIC -shared &lt;span class=&#34;se&#34;&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    -I/path/to/liburing/src/include &lt;span class=&#34;se&#34;&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    -o liburingshim.so uringshim.c &lt;span class=&#34;se&#34;&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    -L/path/to/liburing/src -luring &lt;span class=&#34;se&#34;&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    -Wl,-rpath,&lt;span class=&#34;s1&#34;&gt;&amp;#39;$ORIGIN&amp;#39;&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;If your system already has liburing &amp;gt;= 2.8 installed, the simple build command works:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;gcc -O2 -fPIC -shared -o liburingshim.so uringshim.c -luring&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
 &lt;h2&gt;Opaque Types&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;opaque-types&#34;&gt;&lt;/span&gt;
     &lt;a href=&#34;#opaque-types&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The C# side uses fixed-size structs as opaque handles for kernel types:&lt;/p&gt;
 &lt;h3&gt;io_uring&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;io_uring&#34;&gt;&lt;/span&gt;
@@ -4398,10 +4435,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Connection Lifecycle</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/connection-lifecycle/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/connection-lifecycle/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/connection-lifecycle/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/connection-lifecycle/</guid>
       <description>
         
         
@@ -4562,10 +4599,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>ConnectionStream</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/connection-stream/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/connection-stream/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/connection-stream/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/connection-stream/</guid>
       <description>
         
         
@@ -4834,10 +4871,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Memory Management</title>
-      <link>https://mda2av.github.io/zerg/docs/internals/memory-management/</link>
+      <link>http://localhost:1313/zerg/docs/internals/memory-management/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/internals/memory-management/</guid>
+      <guid>http://localhost:1313/zerg/docs/internals/memory-management/</guid>
       <description>
         
         
@@ -5197,10 +5234,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Performance Tuning</title>
-      <link>https://mda2av.github.io/zerg/docs/guides/performance-tuning/</link>
+      <link>http://localhost:1313/zerg/docs/guides/performance-tuning/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/guides/performance-tuning/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/performance-tuning/</guid>
       <description>
         
         
@@ -5574,10 +5611,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Configuration Reference</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/configuration/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/configuration/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/configuration/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/configuration/</guid>
       <description>
         
         
@@ -5996,10 +6033,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>ConnectionPipeReader</title>
-      <link>https://mda2av.github.io/zerg/docs/api-reference/connection-pipereader/</link>
+      <link>http://localhost:1313/zerg/docs/api-reference/connection-pipereader/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/api-reference/connection-pipereader/</guid>
+      <guid>http://localhost:1313/zerg/docs/api-reference/connection-pipereader/</guid>
       <description>
         
         
@@ -6252,10 +6289,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Threading Model</title>
-      <link>https://mda2av.github.io/zerg/docs/architecture/threading-model/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/threading-model/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://mda2av.github.io/zerg/docs/architecture/threading-model/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/threading-model/</guid>
       <description>
         
         

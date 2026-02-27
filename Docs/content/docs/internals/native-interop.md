@@ -15,6 +15,8 @@ The shim library serves two purposes:
 1. Provides a flat C ABI that P/Invoke can call (liburing uses inline functions and macros)
 2. Bundles liburing statically so users don't need to install it
 
+The pre-built `liburingshim.so` ships with **liburing 2.9** statically linked. This version is required for `IOU_PBUF_RING_INC` (incremental buffer consumption) — liburing <= 2.5 silently drops the buffer ring flags parameter.
+
 ## Bundled Native Libraries
 
 The NuGet package includes pre-built shim libraries:
@@ -25,6 +27,29 @@ The NuGet package includes pre-built shim libraries:
 | `linux-musl-x64` (Alpine) | `native/linux-musl-x64/liburingshim.so` |
 
 These are automatically copied to the output directory by MSBuild.
+
+## Building the Shim from Source
+
+If you need to rebuild `liburingshim.so`, you must link against **liburing >= 2.8**. Earlier versions (e.g., 2.5 shipped with Ubuntu 24.04) silently drop the `IOU_PBUF_RING_INC` flag, breaking incremental buffer consumption.
+
+```bash
+# Build liburing 2.9 from source
+git clone --depth 1 --branch liburing-2.9 https://github.com/axboe/liburing.git
+cd liburing && ./configure && make -j$(nproc)
+
+# Build the shim against the local liburing
+gcc -O2 -fPIC -shared \
+    -I/path/to/liburing/src/include \
+    -o liburingshim.so uringshim.c \
+    -L/path/to/liburing/src -luring \
+    -Wl,-rpath,'$ORIGIN'
+```
+
+If your system already has liburing >= 2.8 installed, the simple build command works:
+
+```bash
+gcc -O2 -fPIC -shared -o liburingshim.so uringshim.c -luring
+```
 
 ## Opaque Types
 
