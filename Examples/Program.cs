@@ -45,7 +45,7 @@ internal class Program
                     BatchCqes: 4096,
                     MaxConnectionsPerReactor: 8 * 1024,
                     CqTimeout: 1_000_000,
-                    IncrementalBufferConsumption: true
+                    IncrementalBufferConsumption: false
                 )).ToArray()
             });
 

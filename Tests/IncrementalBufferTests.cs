@@ -239,6 +239,117 @@ public class IncrementalBufferTests
     }
 
     // ========================================================================
+    // Buffer ID reuse detection (best-effort)
+    // ========================================================================
+
+    /// <summary>
+    /// Sends a 16 KB payload split into 1000 tiny fragments with minimal delays,
+    /// forcing many recv CQEs on the same connection. The handler tracks each
+    /// RingItem's BufferId to measure how aggressively the kernel reuses buffers
+    /// via incremental consumption.
+    ///
+    /// Best-effort: on kernels &lt; 6.12 or when loopback coalesces fragments, all
+    /// data still arrives correctly — we just won't observe bid reuse. Data correctness
+    /// is always verified; bid reuse is logged but never causes a failure.
+    /// </summary>
+    [Fact]
+    public async Task Incremental_DetectBufferReuse_BestEffort()
+    {
+        // 16 KB random payload split into ~1000 fragments (~17 bytes each)
+        const int payloadSize = 16 * 1024;
+        const int fragmentCount = 1000;
+        var fullPayload = new byte[payloadSize];
+        Random.Shared.NextBytes(fullPayload);
+        int fragmentSize = (payloadSize + fragmentCount - 1) / fragmentCount;
+
+        // Run with incremental disabled first, then enabled, to compare
+        var disabledConfig = new ReactorConfig(IncrementalBufferConsumption: false);
+        var (disabledRings, disabledConsecutive) = await RunFragmentedSend(fullPayload, fragmentSize, disabledConfig);
+
+        var (enabledRings, enabledConsecutive) = await RunFragmentedSend(fullPayload, fragmentSize, IncrementalConfig);
+
+        // Log comparison
+        Console.WriteLine(
+            $"[Incremental Buffer Reuse] payload={payloadSize} fragmentSize={fragmentSize} " +
+            $"fragments={((payloadSize + fragmentSize - 1) / fragmentSize)}");
+        Console.WriteLine(
+            $"  DISABLED: rings={disabledRings} consecutiveSameBid={disabledConsecutive}");
+        Console.WriteLine(
+            $"  ENABLED:  rings={enabledRings} consecutiveSameBid={enabledConsecutive}");
+    }
+
+    private static async Task<(int Rings, int ConsecutiveSameBid)> RunFragmentedSend(
+        byte[] fullPayload, int fragmentSize, ReactorConfig config)
+    {
+        var statsReceived = new TaskCompletionSource<(byte[] Data, int TotalRings, int ConsecutiveSameBid)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task Handler(Connection connection)
+        {
+            try
+            {
+                var receivedData = new MemoryStream();
+                int totalRings = 0;
+                int consecutiveSameBid = 0;
+                ushort lastBid = ushort.MaxValue;
+
+                while (receivedData.Length < fullPayload.Length)
+                {
+                    var result = await connection.ReadAsync();
+                    if (result.IsClosed) break;
+
+                    unsafe
+                    {
+                        while (connection.TryGetRing(result.TailSnapshot, out var ring))
+                        {
+                            totalRings++;
+                            if (ring.BufferId == lastBid)
+                                consecutiveSameBid++;
+                            lastBid = ring.BufferId;
+                            var span = new ReadOnlySpan<byte>(ring.Ptr, ring.Length);
+                            receivedData.Write(span);
+                            connection.ReturnRing(ring.BufferId);
+                        }
+                    }
+
+                    connection.ResetRead();
+                }
+
+                statsReceived.TrySetResult((receivedData.ToArray(), totalRings, consecutiveSameBid));
+            }
+            catch (Exception ex)
+            {
+                statsReceived.TrySetException(ex);
+            }
+        }
+
+        await using var server = new ZergTestServer(Handler, reactorConfig: config);
+        await Task.Delay(100);
+
+        using var client = new TcpClient { NoDelay = true };
+        await client.ConnectAsync("127.0.0.1", server.Port);
+        var stream = client.GetStream();
+
+        for (int offset = 0; offset < fullPayload.Length; offset += fragmentSize)
+        {
+            int len = Math.Min(fragmentSize, fullPayload.Length - offset);
+            await stream.WriteAsync(fullPayload.AsMemory(offset, len));
+            await stream.FlushAsync();
+        }
+
+        // Wait for handler stats
+        var completed = await Task.WhenAny(statsReceived.Task, Task.Delay(30000));
+        Assert.Equal(statsReceived.Task, completed);
+
+        var (data, rings, consecutiveSameBid) = await statsReceived.Task;
+
+        // Data correctness
+        Assert.Equal(fullPayload, data);
+
+        return (rings, consecutiveSameBid);
+    }
+
+    // ========================================================================
     // Handlers
     // ========================================================================
 
