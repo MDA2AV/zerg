@@ -10,7 +10,7 @@ public sealed unsafe partial class Engine {
             Dictionary<int, Connection> connections = _engine.Connections[Id];
             ConcurrentQueue<int> reactorQueue = ReactorQueues[Id];
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
-            
+
             try {
                 io_uring_cqe* cqe;
                 __kernel_timespec ts;
@@ -50,14 +50,8 @@ public sealed unsafe partial class Engine {
                             if (res <= 0) {
                                 if (hasBuffer) {
                                     ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                    if (_incrementalBuffers) {
-                                        _bufferKernelDone![bufferId] = true;
-                                        if (_bufferRefCounts![bufferId] > 0)
-                                            goto skipReturnError; // outstanding RingItems will return it
-                                    }
                                     byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
                                     ReturnBufferRing(addr, bufferId);
-                                    skipReturnError:;
                                 }
                                 if (connections.Remove(fd, out var connection)) {
                                     connection.MarkClosed(res);
@@ -69,29 +63,13 @@ public sealed unsafe partial class Engine {
                             }
                             if (!hasBuffer) continue;
                             ushort bid = (ushort)shim_cqe_buffer_id(cqe);
-                            byte* ptr;
-                            if (_incrementalBuffers) {
-                                bool bufMore = (cqe->flags & IORING_CQE_F_BUF_MORE) != 0;
-                                ptr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize + (nuint)_bufferOffsets![bid];
-                                _bufferOffsets[bid] += res;
-                                _bufferRefCounts![bid]++;
-                                if (!bufMore)
-                                    _bufferKernelDone![bid] = true;
-                            } else {
-                                ptr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize;
-                            }
+                            byte* ptr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize;
                             if (connections.TryGetValue(fd, out var connection2)) {
                                 connection2.EnqueueRingItem(ptr, res, bid);
                                 if (!hasMore) {
                                     ArmRecvMultishot(io_uring_instance, fd, c_bufferRingGID);
                                 }
                             } else {
-                                if (_incrementalBuffers) {
-                                    // No connection: mark kernel done and check if we can return immediately
-                                    _bufferKernelDone![bid] = true;
-                                    if (--_bufferRefCounts![bid] > 0)
-                                        continue; // other RingItems still hold refs
-                                }
                                 ReturnBufferRing(_bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize, bid);
                             }
                         } else if (kind == UdKind.Send) {
@@ -130,13 +108,13 @@ public sealed unsafe partial class Engine {
                 }
                 // Destroy ring
                 if (io_uring_instance != null) {
-                    shim_destroy_ring(io_uring_instance); 
-                    io_uring_instance = null; 
+                    shim_destroy_ring(io_uring_instance);
+                    io_uring_instance = null;
                 }
                 // Free slab memory used by buf ring
                 if (_bufferRingSlab != null) {
-                    NativeMemory.AlignedFree(_bufferRingSlab); 
-                    _bufferRingSlab = null; 
+                    NativeMemory.AlignedFree(_bufferRingSlab);
+                    _bufferRingSlab = null;
                 }
                 Console.WriteLine($"Reactor[{Id}] Shutdown complete.");
             }

@@ -20,7 +20,7 @@ public sealed partial class Connection :
     /// Owning reactor (used to return buffers back to reactor-owned pool).
     /// </summary>
     public Engine.Engine.Reactor Reactor { get; private set; } = null!;
-    
+
     // =========================================================================
     // Pooling / lifecycle
     // =========================================================================
