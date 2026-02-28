@@ -4,63 +4,73 @@ using static zerg.ABI.ABI;
 
 namespace zerg.Engine;
 
-public sealed unsafe partial class Engine 
+public sealed unsafe partial class Engine
 {
     public partial class Reactor
     {
-        internal void HandleSubmitAndWaitCqe() 
+        internal void HandleSubmitAndWaitCqe()
         {
             Dictionary<int,Connection> connections = _engine.Connections[Id];
             ConcurrentQueue<int> reactorQueue = ReactorQueues[Id];     // new FDs from acceptor
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
 
-            try 
+            try
             {
-                io_uring_cqe* cqe; 
+                io_uring_cqe* cqe;
                 __kernel_timespec ts;
-                ts.tv_sec  = 0; 
+                ts.tv_sec  = 0;
                 ts.tv_nsec = Config.CqTimeout; // 1 ms timeout
-                
-                while (_engine.ServerRunning) 
+
+                while (_engine.ServerRunning)
                 {
                     // Drain new connections
-                    while (reactorQueue.TryDequeue(out int newFd)) 
+                    while (reactorQueue.TryDequeue(out int newFd))
                     {
-                        connections[newFd] = _engine.ConnectionPool.Get()
+                        Connection conn = _engine.ConnectionPool.Get()
                             .SetFd(newFd)
                             .SetReactor(_engine.Reactors[Id]);
-                        
-                        ArmRecvMultishot(io_uring_instance, newFd, c_bufferRingGID); 
+                        connections[newFd] = conn;
+
+                        if (_incrementalMode)
+                        {
+                            SetupConnectionBufRing(conn);
+                            ArmRecvMultishot(io_uring_instance, newFd, conn.Bgid);
+                        }
+                        else
+                        {
+                            ArmRecvMultishot(io_uring_instance, newFd, c_bufferRingGID);
+                        }
+
                         bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(Id, newFd));
                         if (!connectionAdded) Console.WriteLine("Failed to write connection!!");
                     }
-                    
+
                     DrainReturnQ(); // Drain rings returns
-                    
+                    if (_incrementalMode) DrainReturnQIncremental();
+
                     DrainFlushQ();
-                    
-                    if (shim_sq_ready(io_uring_instance) > 0) 
+
+                    if (shim_sq_ready(io_uring_instance) > 0)
                         shim_submit(io_uring_instance);
-                    
+
                     int rc = shim_wait_cqes(io_uring_instance, &cqe, (uint)1, &ts); int got;
 
                     if (rc < 0)
                     {
-                        continue; 
+                        continue;
                     }
-                    //if (rc == -62 || rc < 0 && rc != -17) { _counter++; continue; }
-                    
-                    fixed (io_uring_cqe** pC = cqes) 
+
+                    fixed (io_uring_cqe** pC = cqes)
                         got = shim_peek_batch_cqe(io_uring_instance, pC, (uint)Config.BatchCqes);
 
-                    for (int i = 0; i < got; i++) 
+                    for (int i = 0; i < got; i++)
                     {
                         cqe = cqes[i];
                         ulong ud = shim_cqe_get_data64(cqe);
                         UdKind kind = UdKindOf(ud);
                         int res  = cqe->res;
 
-                        if (kind == UdKind.Recv) 
+                        if (kind == UdKind.Recv)
                         {
                             int fd = UdFdOf(ud);
                             bool hasBuffer = shim_cqe_has_buffer(cqe) != 0;
@@ -73,20 +83,25 @@ public sealed unsafe partial class Engine
                                 if (hasBuffer)
                                 {
                                     ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                    if (_incrementalBuffers) {
-                                        _bufferKernelDone![bufferId] = true;
-                                        if (_bufferRefCounts![bufferId] > 0)
-                                            goto skipReturnError; // outstanding RingItems will return it
+                                    if (connections.TryGetValue(fd, out var connClose) && connClose.IncrementalMode)
+                                    {
+                                        connClose.BufKernelDone![bufferId] = true;
+                                        if (connClose.BufRefCounts![bufferId] <= 0)
+                                            ReturnConnectionBuffer(connClose, bufferId);
                                     }
-                                    byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
-                                    ReturnBufferRing(addr, bufferId);
-                                    skipReturnError:;
+                                    else if (!_incrementalMode)
+                                    {
+                                        byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
+                                        ReturnBufferRing(addr, bufferId);
+                                    }
                                 }
                                 // REMOVE the connection mapping so we don't process this fd again,
                                 // and so fd reuse won't hit a stale Connection.
                                 if (connections.Remove(fd, out var connection))
                                 {
                                     connection.MarkClosed(res);
+                                    if (connection.IncrementalMode)
+                                        TeardownConnectionBufRing(connection);
                                     _engine.ConnectionPool.Return(connection);
                                     SubmitCancelRecv(io_uring_instance, fd);   // Cancel the multishot recv
                                     if (shim_sq_ready(io_uring_instance) > 0)
@@ -108,39 +123,37 @@ public sealed unsafe partial class Engine
                                 }
 
                                 var bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                byte* ptr;
-                                if (_incrementalBuffers) {
-                                    bool bufMore = (cqe->flags & IORING_CQE_F_BUF_MORE) != 0;
-                                    ptr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize + (nuint)_bufferOffsets![bufferId];
-                                    _bufferOffsets[bufferId] += res;
-                                    _bufferRefCounts![bufferId]++;
-                                    if (!bufMore)
-                                        _bufferKernelDone![bufferId] = true;
-                                } else {
-                                    ptr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
-                                }
 
                                 if (connections.TryGetValue(fd, out var connection))
                                 {
+                                    byte* ptr;
+                                    if (connection.IncrementalMode)
+                                    {
+                                        ptr = connection.BufRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize
+                                              + (nuint)connection.BufCumulativeOffset![bufferId];
+                                        connection.BufCumulativeOffset[bufferId] += res;
+                                        bool bufMore = (cqe->flags & IORING_CQE_F_BUF_MORE) != 0;
+                                        connection.BufRefCounts![bufferId]++;
+                                        if (!bufMore) connection.BufKernelDone![bufferId] = true;
+                                    }
+                                    else
+                                    {
+                                        ptr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
+                                    }
+
                                     connection.EnqueueRingItem(ptr, res, bufferId);
                                     if (!hasMore)
-                                        ArmRecvMultishot(io_uring_instance, fd, c_bufferRingGID);
+                                        ArmRecvMultishot(io_uring_instance, fd,
+                                            connection.IncrementalMode ? (uint)connection.Bgid : c_bufferRingGID);
                                 }
                                 else
                                 {
-                                    if (_incrementalBuffers) {
-                                        _bufferKernelDone![bufferId] = true;
-                                        if (--_bufferRefCounts![bufferId] > 0)
-                                        {
-                                            shim_cqe_seen(io_uring_instance, cqe);
-                                            continue;
-                                        }
-                                    }
-                                    ReturnBufferRing(_bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize, bufferId);
+                                    if (!_incrementalMode)
+                                        ReturnBufferRing(_bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize, bufferId);
                                 }
                             }
                         }
-                        else if (kind == UdKind.Send) 
+                        else if (kind == UdKind.Send)
                         {
                             int fd = UdFdOf(ud);
                             if (connections.TryGetValue(fd, out var connection))
@@ -174,7 +187,7 @@ public sealed unsafe partial class Engine
                                     connection.CompleteFlush();
                             }
                         }
-                        else if (kind == UdKind.Cancel) 
+                        else if (kind == UdKind.Cancel)
                         {
                             Console.WriteLine("Cancel");
                             // ignore; res==0 means cancel succeeded, res<0 often means it was already gone
@@ -182,13 +195,13 @@ public sealed unsafe partial class Engine
                         shim_cqe_seen(io_uring_instance, cqe);
                     }
                 }
-            } 
-            finally 
+            }
+            finally
             {
                 // Close any remaining connections
                 CloseAll(connections);
                 // Free buffer ring BEFORE destroying the ring
-                if (io_uring_instance != null && _bufferRing != null) 
+                if (io_uring_instance != null && _bufferRing != null)
                 {
                     DrainReturnQ();
                     shim_free_buf_ring(io_uring_instance, _bufferRing, (uint)Config.BufferRingEntries, c_bufferRingGID);
@@ -197,12 +210,12 @@ public sealed unsafe partial class Engine
                 // Destroy ring (unregisters CQ/SQ memory mappings)
                 if (io_uring_instance != null)
                 {
-                    shim_destroy_ring(io_uring_instance); io_uring_instance = null; 
+                    shim_destroy_ring(io_uring_instance); io_uring_instance = null;
                 }
                 // Free slab memory used by buf ring
                 if (_bufferRingSlab != null)
                 {
-                    NativeMemory.AlignedFree(_bufferRingSlab); _bufferRingSlab = null; 
+                    NativeMemory.AlignedFree(_bufferRingSlab); _bufferRingSlab = null;
                 }
                 Console.WriteLine($"Reactor[{Id}] Shutdown complete.");
             }
