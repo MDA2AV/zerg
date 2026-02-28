@@ -24,8 +24,8 @@ public sealed unsafe partial class Connection
     ///
     /// Producer contract:
     /// - Called by reactor thread(s) when a recv completes for this connection.
-    /// - If the connection is already closed/reused, this method is a no-op (caller should
-    ///   return buffer elsewhere).
+    /// - Returns false if the item was NOT enqueued (connection already closed or ring overflow).
+    ///   The caller (reactor) must handle the buffer (undo refcount, return to ring, close fd).
     ///
     /// Wakeup behavior:
     /// - If a handler is currently armed, we atomically disarm and complete the ValueTask
@@ -33,14 +33,13 @@ public sealed unsafe partial class Connection
     /// - If no handler is armed, we set <see cref="_pending"/> so the next ReadAsync fast-paths.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void EnqueueRingItem(byte* ptr, int length, ushort bufferId)
+    public bool EnqueueRingItem(byte* ptr, int length, ushort bufferId)
     {
-        // If connection already closed/reused, just let reactor return the buffer elsewhere.
+        // If connection already closed/reused, caller must handle the buffer.
         if (Volatile.Read(ref _closed) != 0)
-            return;
+            return false;
 
         // Ring full policy: close the connection (safer than corrupting the queue).
-        // Alternative policies: drop, backpressure, expand ring.
         if (!_recv.TryEnqueue(new RingItem(ptr, length, bufferId)))
         {
             // Publish close.
@@ -52,7 +51,14 @@ public sealed unsafe partial class Connection
             else
                 Volatile.Write(ref _pending, 1);
 
-            return;
+            // Also wake flush waiter so handler doesn't hang in FlushAsync.
+            if (Interlocked.Exchange(ref _flushArmed, 0) == 1)
+            {
+                Volatile.Write(ref _flushInProgress, 0);
+                _flushSignal.SetResult(true);
+            }
+
+            return false;
         }
 
         // Edge-trigger wake:
@@ -68,6 +74,8 @@ public sealed unsafe partial class Connection
             // No waiter: mark pending so the next ReadAsync does not park.
             Volatile.Write(ref _pending, 1);
         }
+
+        return true;
     }
     
     // =========================================================================

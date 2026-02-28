@@ -75,27 +75,25 @@ public sealed partial class Engine
     /// Internal struct used to pass (reactorId, fd) pairs
     /// from the acceptor to the async AcceptAsync API.
     /// </summary>
-    private struct ConnectionItem(int reactorId, int clientFd)
+    private struct ConnectionItem(Connection connection, int generation)
     {
-        public readonly int ReactorId = reactorId;
-        public readonly int ClientFd = clientFd;
+        public readonly Connection Connection = connection;
+        public readonly int Generation = generation;
     }
     /// <summary>
     /// Asynchronously waits for the next accepted connection.
     /// Returns the fully registered Connection object.
     /// </summary>
-    public async ValueTask<Connection?> AcceptAsync(CancellationToken cancellationToken = default) 
+    public async ValueTask<Connection?> AcceptAsync(CancellationToken cancellationToken = default)
     {
-        while (true) 
+        while (true)
         {
             var item = await ConnectionQueues.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
 
-            var dict = Connections[item.ReactorId];
-            if (dict.TryGetValue(item.ClientFd, out var conn))
-                return conn;
-
-            // The fd was closed/removed before we got here (recv res<=0 path).
-            // Skip it and wait for the next accepted connection.
+            // Generation check: skip stale items from fds that were closed/reused
+            // before AcceptAsync could process them.
+            if (item.Connection.Generation == item.Generation)
+                return item.Connection;
         }
     }
     /// <summary>

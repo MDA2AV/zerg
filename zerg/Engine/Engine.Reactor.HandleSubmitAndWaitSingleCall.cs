@@ -36,7 +36,7 @@ public sealed unsafe partial class Engine
                         // Queue multishot recv SQE (will be flushed by submit_and_wait_timeout)
                         ArmRecvMultishot(io_uring_instance, newFd, c_bufferRingGID);
 
-                        bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(Id, newFd));
+                        bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(connections[newFd], connections[newFd].Generation));
                         if (!connectionAdded) 
                             Console.WriteLine("Failed to write connection!!");
                     }

@@ -56,8 +56,12 @@ public sealed partial class Connection
 
     /// <summary>
     /// Incremented on Clear()/reuse. Used as ValueTask token to invalidate old awaiters.
+    /// Also used to detect stale ConnectionItems in AcceptAsync when fds are reused by the OS.
     /// </summary>
     private int _generation;
+
+    /// <summary>Current generation (lifetime counter). Exposed for stale-item detection.</summary>
+    internal int Generation => Volatile.Read(ref _generation);
 
     // =========================================================================
     // Inbound recv ring (MPSC)
@@ -88,6 +92,13 @@ public sealed partial class Connection
             _readSignal.SetResult(RingSnapshot.Closed(error));
         else
             Volatile.Write(ref _pending, 1);
+
+        // Also wake flush waiter so handler doesn't hang in FlushAsync.
+        if (Interlocked.Exchange(ref _flushArmed, 0) == 1)
+        {
+            Volatile.Write(ref _flushInProgress, 0);
+            _flushSignal.SetResult(true);
+        }
     }
 
     // =========================================================================

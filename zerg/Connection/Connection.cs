@@ -20,7 +20,7 @@ public sealed partial class Connection :
     /// Owning reactor (used to return buffers back to reactor-owned pool).
     /// </summary>
     public Engine.Engine.Reactor Reactor { get; private set; } = null!;
-    
+
     // =========================================================================
     // Pooling / lifecycle
     // =========================================================================
@@ -83,7 +83,16 @@ public sealed partial class Connection :
         ResetWriteBuffer();
         WriteInFlight = 0;
 
-        // Read-side buffers
+        // Drain un-consumed recv buffers and return them to the reactor's buf_ring
+        // before clearing, so we don't leak provided buffers.
+        if (Reactor != null)
+        {
+            while (!_recv.IsEmpty())
+            {
+                var item = _recv.DequeueSingle();
+                Reactor.EnqueueReturnQ(item.BufferId);
+            }
+        }
         _recv.Clear();
 
         // Finally reset the VTS cores for reuse

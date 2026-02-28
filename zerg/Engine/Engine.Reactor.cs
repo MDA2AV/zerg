@@ -87,7 +87,13 @@ public sealed unsafe partial class Engine
         }
         
         public Reactor(int id, Engine engine) : this(id, new ReactorConfig(), engine) { }
-        
+
+        /// <summary>
+        /// Returns a connection to the engine's object pool.
+        /// Called by the handler's finally block after it observes IsClosed and exits.
+        /// </summary>
+        public void ReturnConnection(Connection connection) => _engine.ConnectionPool.Return(connection);
+
         /// <summary>Reactor ID (index into engine arrays).</summary>
         public int Id { get; }
         

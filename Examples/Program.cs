@@ -91,7 +91,7 @@ internal class Program
                 }
                 else
                 {
-                    _ = handler(connection);
+                    _ = RunHandler(connection, handler);
                 }
             }
         }
@@ -102,5 +102,17 @@ internal class Program
 
         cts.Dispose();
         Console.WriteLine("Main loop finished.");
+    }
+
+    private static async Task RunHandler(Connection connection, Func<Connection, Task> handler)
+    {
+        try
+        {
+            await handler(connection);
+        }
+        finally
+        {
+            connection.Reactor.ReturnConnection(connection);
+        }
     }
 }

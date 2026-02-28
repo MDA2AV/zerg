@@ -65,6 +65,7 @@ internal sealed class ConnectionHandler
         finally
         {
             unsafe { NativeMemory.AlignedFree(_inflightData); }
+            connection.Reactor.ReturnConnection(connection);
         }
     }
 

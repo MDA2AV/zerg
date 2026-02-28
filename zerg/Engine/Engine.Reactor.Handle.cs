@@ -16,14 +16,26 @@ public sealed unsafe partial class Engine {
                 __kernel_timespec ts;
                 ts.tv_sec  = 0;
                 ts.tv_nsec = Config.CqTimeout;
+                int _dRecvErr = 0, _dRecvOverflow = 0, _dEnobufs = 0;
+                Dictionary<int, int> _errCodes = new();
+                long _diagTick = Environment.TickCount64;
                 while (_engine.ServerRunning) {
+                    if (Id == 0) {
+                        long now = Environment.TickCount64;
+                        if (now - _diagTick > 2000) {
+                            string errStr = string.Join(",", _errCodes.Select(kv => $"{kv.Key}:{kv.Value}"));
+                            Console.WriteLine($"[w0] recvErr={_dRecvErr} overflow={_dRecvOverflow} enobufs={_dEnobufs} conns={connections.Count} errs=[{errStr}]");
+                            _diagTick = now;
+                        }
+                    }
                     while (reactorQueue.TryDequeue(out int newFd)) {
-                        connections[newFd] = _engine.ConnectionPool.Get()
+                        Connection conn = _engine.ConnectionPool.Get()
                             .SetFd(newFd)
                             .SetReactor(_engine.Reactors[Id]);
+                        connections[newFd] = conn;
                         // Queue multishot recv SQE (will be flushed by submit_and_wait_timeout)
                         ArmRecvMultishot(io_uring_instance, newFd, c_bufferRingGID);
-                        bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(Id, newFd));
+                        bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(conn, conn.Generation));
                         if (!connectionAdded) Console.WriteLine("Failed to write connection!!");
                     }
                     DrainReturnQ();
@@ -50,6 +62,13 @@ public sealed unsafe partial class Engine {
                             bool hasBuffer = shim_cqe_has_buffer(cqe) != 0;
                             bool hasMore   = (cqe->flags & IORING_CQE_F_MORE) != 0;
                             if (res <= 0) {
+                                // ENOBUFS (-105): buf_ring temporarily empty — NOT fatal.
+                                if (res == -105) {
+                                    _dEnobufs++;
+                                    if (!hasMore)
+                                        ArmRecvMultishot(io_uring_instance, fd, c_bufferRingGID);
+                                    continue;
+                                }
                                 if (hasBuffer) {
                                     ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
                                     if (_incrementalBuffers) {
@@ -61,9 +80,10 @@ public sealed unsafe partial class Engine {
                                     ReturnBufferRing(addr, bufferId);
                                     skipReturnError:;
                                 }
+                                _dRecvErr++;
+                                if (Id == 0) { _errCodes.TryGetValue(res, out int c); _errCodes[res] = c + 1; }
                                 if (connections.Remove(fd, out var connection)) {
                                     connection.MarkClosed(res);
-                                    _engine.ConnectionPool.Return(connection);
                                     SubmitCancelRecv(io_uring_instance, fd);
                                     close(fd);
                                 }
@@ -77,13 +97,35 @@ public sealed unsafe partial class Engine {
                                 ptr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize + (nuint)_bufferOffsets![bid];
                                 _bufferOffsets[bid] += res;
                                 _bufferRefCounts![bid]++;
-                                if (!bufMore)
+                                if (!bufMore) {
                                     _bufferKernelDone![bid] = true;
+                                    // If all handler returns already processed (refcount was
+                                    // decremented to 0 by earlier DrainReturnQ calls while
+                                    // kernelDone was still false), only the current CQE's ref
+                                    // remains. It will be returned by the handler normally.
+                                    // But if refcount is 1 and no items will be enqueued (e.g.,
+                                    // connection already closed), we handle it in the normal path.
+                                }
                             } else {
                                 ptr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize;
                             }
                             if (connections.TryGetValue(fd, out var connection2)) {
-                                connection2.EnqueueRingItem(ptr, res, bid);
+                                if (!connection2.EnqueueRingItem(ptr, res, bid)) {
+                                    _dRecvOverflow++;
+                                    // Connection was force-closed (ring overflow or already closed).
+                                    if (connections.Remove(fd)) {
+                                        SubmitCancelRecv(io_uring_instance, fd);
+                                        close(fd);
+                                    }
+                                    // Undo the buffer refcount since the item was not enqueued.
+                                    if (_incrementalBuffers) {
+                                        if (--_bufferRefCounts![bid] <= 0 && _bufferKernelDone![bid])
+                                            ReturnBufferRing(_bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize, bid);
+                                    } else {
+                                        ReturnBufferRing(_bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize, bid);
+                                    }
+                                    continue;
+                                }
                                 if (!hasMore) {
                                     ArmRecvMultishot(io_uring_instance, fd, c_bufferRingGID);
                                 }

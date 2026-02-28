@@ -26,12 +26,13 @@ public sealed unsafe partial class Engine
                     // Drain new connections
                     while (reactorQueue.TryDequeue(out int newFd)) 
                     {
-                        connections[newFd] = _engine.ConnectionPool.Get()
+                        Connection conn = _engine.ConnectionPool.Get()
                             .SetFd(newFd)
                             .SetReactor(_engine.Reactors[Id]);
-                        
-                        ArmRecvMultishot(io_uring_instance, newFd, c_bufferRingGID); 
-                        bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(Id, newFd));
+                        connections[newFd] = conn;
+
+                        ArmRecvMultishot(io_uring_instance, newFd, c_bufferRingGID);
+                        bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(conn, conn.Generation));
                         if (!connectionAdded) Console.WriteLine("Failed to write connection!!");
                     }
                     
